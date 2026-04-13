@@ -1,0 +1,205 @@
+{
+  "meta": {
+    "video_title": "2点过后：时针分针何时重合？",
+    "topic": "追及问题 / 钟表重合",
+    "target_duration_sec": 70,
+    "style": "数学科普 + 动画演示（Manim）",
+    "constraints": [
+      "严禁使用 BackgroundRect 类",
+      "严禁使用 self.camera.frame（用对 Mobject/VGroup 的 scale 与 move_to 动画模拟镜头）",
+      "必须包含：初始状态2:00、追及运动、方程6t=60+0.5t列出与求解、最终重合2:10:54.55展示"
+    ],
+    "key_result": {
+      "t_minutes": "120/11 ≈ 10.909090...",
+      "time": "2:10:54.55"
+    }
+  },
+  "assets": {
+    "mobjects": [
+      "clock_group = VGroup(Circle face, 12 ticks, hour_hand, minute_hand, center_dot)",
+      "ValueTracker t (minutes after 2:00)",
+      "time_text (always_redraw, to_corner(UR))",
+      "title Text",
+      "captions Text (per segment)",
+      "equations: eq1..eq4 (MathTex)",
+      "highlight box: SurroundingRectangle(eq1)"
+    ],
+    "animation_notes": [
+      "所有“镜头拉近/拉远/平移”用 clock_group/eq_group 的 animate.scale() 与 animate.move_to() 实现",
+      "指针运动用 updater 绑定到 ValueTracker t；最终定格前再 remove_updater",
+      "强调框使用 SurroundingRectangle，不使用任何 BackgroundRect"
+    ]
+  },
+  "shots": [
+    {
+      "id": "S1",
+      "time_range_sec": [0, 6],
+      "goal": "提出问题并建立场景：一个真实可读的钟面 + 初始时间 2:00。",
+      "visual": [
+        "画面上方：标题 Text「2点过后，时针分针何时重合？」",
+        "画面中心偏下：clock_group（表盘圆、刻度、中心点、时针指向2、分针指向12）",
+        "右上角：数字时间 time_text 显示「2:00:00.00」"
+      ],
+      "actions": [
+        "Write(title)",
+        "Create(face), Create(ticks), FadeIn(hands+pin), FadeIn(time_text)",
+        "短暂停顿，让观众确认 2:00 状态"
+      ],
+      "narration": "现在是2点整。分针指向12，时针指向2。问题是：2点过后，它们要过多久才会第一次重合？",
+      "on_screen_text": [
+        "初始：2:00"
+      ]
+    },
+    {
+      "id": "S2",
+      "time_range_sec": [6, 18],
+      "goal": "用运动直观展示“追及”：分针更快，逐步追上时针。",
+      "visual": [
+        "clock_group 保持居中偏下",
+        "底部字幕：Text「分针更快，正在追赶时针…」",
+        "右上角 time_text 随 t 增大滚动到约 2:10:00"
+      ],
+      "actions": [
+        "FadeIn(caption)",
+        "t.animate.set_value(10.0)（run_time≈3s，smooth），指针随 updater 同步转动",
+        "停顿0.3s，FadeOut(caption)"
+      ],
+      "narration": "分针每分钟转6度，而时针每分钟只走0.5度，所以分针会不断缩小与时针的夹角，形成典型的追及问题。",
+      "on_screen_text": [
+        "分针更快，追赶时针…"
+      ]
+    },
+    {
+      "id": "S3",
+      "time_range_sec": [18, 26],
+      "goal": "从几何角度给出建模变量与角速度信息，为列方程做铺垫。",
+      "visual": [
+        "clock_group 左移并略缩小（模拟镜头给右侧腾位置）",
+        "右侧出现要点列表（Text/MathTex混排）",
+        "要点包含：设t为分钟；分针6°/min；时针0.5°/min；2:00时针在60°"
+      ],
+      "actions": [
+        "clock_group.animate.scale(0.85).move_to(LEFT*2.6 + DOWN*0.2)",
+        "Write/ FadeIn bullet points（逐条出现）"
+      ],
+      "narration": "设从2点整开始过了t分钟。分针速度是每分钟6度；时针速度是每分钟0.5度。并且在2:00这一刻，时针领先分针60度。",
+      "on_screen_text": [
+        "设 t = 2:00后经过的分钟数",
+        "分针：6°/min",
+        "时针：0.5°/min",
+        "2:00时针位置：60°"
+      ]
+    },
+    {
+      "id": "S4",
+      "time_range_sec": [26, 40],
+      "goal": "列出关键方程 6t = 60 + 0.5t，并用 SurroundingRectangle 强调。",
+      "visual": [
+        "右侧公式区：eq1 大号显示：6t = 60 + 0.5t",
+        "eq1 外加 SurroundingRectangle 高亮框",
+        "clock_group 左侧继续保持，指针仍可微动或暂停（建议暂停t不变以利阅读）"
+      ],
+      "actions": [
+        "FadeOut/淡化上一镜头要点（可 set_opacity 到0.3 或直接 FadeOut）",
+        "FadeIn(eq1)",
+        "Create(SurroundingRectangle(eq1))"
+      ],
+      "narration": "重合时，两根指针指向同一方向。分针走过的角度是6t；而时针的角度等于起始的60度，再加上它自己走的0.5t。所以得到关键方程：6t等于60加0.5t。",
+      "on_screen_text": [
+        "6t = 60 + 0.5t"
+      ]
+    },
+    {
+      "id": "S5",
+      "time_range_sec": [40, 54],
+      "goal": "逐步求解并换算成分秒，得到 2:10:54.55。",
+      "visual": [
+        "右侧公式区按行展示：",
+        "eq2：5.5t = 60",
+        "eq3：t = 120/11 ≈ 10.91 min",
+        "eq4：≈ 10 min 54.55 s",
+        "eq1 保留但可略缩小；高亮框从eq1保持或移动到最终结果（可选）"
+      ],
+      "actions": [
+        "TransformFromCopy(eq1, eq2) 或 FadeIn(eq2)",
+        "FadeIn(eq3), FadeIn(eq4)（逐条）",
+        "可将 eq_group 整体 animate.scale(1.05).move_to(RIGHT*3 + DOWN*0.1) 模拟“聚焦公式”"
+      ],
+      "narration": "移项得到5.5t等于60，所以t等于120/11分钟，大约10.91分钟。把0.91分钟换算成秒：乘60得到54.55秒。也就是说，重合发生在2点10分54.55秒左右。",
+      "on_screen_text": [
+        "5.5t = 60",
+        "t = 120/11 ≈ 10.91 min",
+        "≈ 10 min 54.55 s",
+        "重合：2:10:54.55"
+      ]
+    },
+    {
+      "id": "S6",
+      "time_range_sec": [54, 66],
+      "goal": "回到钟面主视角，把 t 精确推进到 120/11，展示最终重合瞬间并定格。",
+      "visual": [
+        "clock_group 回到画面中心偏下并恢复大小",
+        "右侧公式组变淡（opacity≈0.35）或移出画面",
+        "底部出现 Text「重合时刻：2:10:54.55」",
+        "time_text 右上角精确显示「2:10:54.55」（允许四舍五入到0.01s）",
+        "画面中时针与分针完全重合（同一条方向）"
+      ],
+      "actions": [
+        "eq_group.animate.set_opacity(0.35).scale(0.9)（保留作参考）或 FadeOut",
+        "clock_group.animate.scale(1/0.85).move_to(DOWN*0.2)",
+        "t.animate.set_value(120/11)（run_time≈2.5s, smooth）",
+        "Write(announce)",
+        "在重合帧 wait 2s 定格",
+        "remove_updater（结束前清理）"
+      ],
+      "narration": "现在把时间推进到t等于120/11分钟。你会看到两根指针在这一刻完全重合——对应的具体时间就是2:10:54.55。",
+      "on_screen_text": [
+        "重合时刻：2:10:54.55"
+      ]
+    },
+    {
+      "id": "S7",
+      "time_range_sec": [66, 70],
+      "goal": "收束总结：点出追及思想与可迁移性。",
+      "visual": [
+        "保持重合定格画面",
+        "标题淡出或缩小到角落（可选）",
+        "一句总结字幕"
+      ],
+      "actions": [
+        "轻微 FadeIn 总结字幕",
+        "最后0.5~1s淡出（可选）"
+      ],
+      "narration": "本质就是追及：用角速度差建立方程。换成任意整点，也可以用同样方法求第一次重合时间。",
+      "on_screen_text": [
+        "追及问题：用角速度差列方程"
+      ]
+    }
+  ],
+  "timing_and_math_checkpoints": {
+    "must_show_equation_exactly": "6t = 60 + 0.5t",
+    "t_definition": "t 为 2:00 之后经过的分钟数",
+    "angle_speeds": {
+      "minute_hand_deg_per_min": 6,
+      "hour_hand_deg_per_min": 0.5
+    },
+    "final_time_display": "2:10:54.55",
+    "final_freeze_sec": 2
+  },
+  "implementation_guardrails_for_manim": {
+    "do_not_use": [
+      "BackgroundRect",
+      "self.camera.frame"
+    ],
+    "use_instead": [
+      "SurroundingRectangle for highlighting",
+      "VGroup.animate.scale/move_to to simulate zoom/pan",
+      "ValueTracker + updaters for hand motion",
+      "always_redraw for digital time"
+    ],
+    "focus_simulation_examples": [
+      "clock_group.animate.scale(0.85).move_to(LEFT*2.6 + DOWN*0.2)",
+      "eq_group.animate.scale(1.05).move_to(RIGHT*3 + DOWN*0.1)"
+    ]
+  }
+}

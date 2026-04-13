@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>华清大学旅游协会｜内蒙古沙漠星空 3天2晚奇幻之旅</title>
+  <style>
+    :root{
+      /* Palette from ArtKnowledgeAgent */
+      --sky-blue:#283275;         /* 深夜星空蓝 */
+      --desert-gold:#F4D57E;      /* 内蒙古沙漠金 */
+      --grass-green:#79C267;      /* 草原绿 */
+      --orange:#FF9844;           /* 橙色（暖光/按钮） */
+      --lemon:#FFE552;            /* 明亮柠檬黄（星星点缀） */
+      --mint:#60DDFD;             /* 薄荷蓝（点缀） */
+      --ink:#0E153A;
+      --white:#FFFFFF;
+
+      --poster-w: min(92vw, 720px);     /* 适配手机与小屏 */
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(20,30,60,.18);
+    }
+
+    /* 页面基底：无滚动条呈现整张竖版海报（9:16），适配视口 */
+    html,body{
+      height:100%;
+      margin:0;
+      background:
+        radial-gradient(120vw 80vh at 50% -10%, #1f2a63 0%, #10162d 55%, #0a0f22 100%);
+      color:var(--white);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow:hidden; /* 不出现滚动条 */
+    }
+
+    .stage{
+      height:100vh;
+      display:grid;
+      place-items:center;
+      padding: 2vh 0;
+      box-sizing:border-box;
+    }
+
+    /* 海报容器：固定纵横比，适配可视区，避免滚动 */
+    .poster{
+      width: var(--poster-w);
+      aspect-ratio: 9 / 16;
+      border-radius: clamp(10px, 1.8vw, 20px);
+      box-shadow: var(--shadow);
+      position:relative;
+      overflow:hidden;
+      background: linear-gradient(180deg, #0b1130 0%, #14205a 50%, #0b1130 100%);
+      outline: 1px solid rgba(255,255,255,.06);
+    }
+
+    /* 顶部主视觉：仅放图，不叠字，约占2/3高度 */
+    .hero{
+      position:absolute;
+      inset:0 0 34% 0; /* bottom 留出内容区 */
+      display:block;
+      overflow:hidden;
+      background: #0b1130;
+      isolation:isolate;
+    }
+    .hero img{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      display:block;
+      filter: saturate(1.05) contrast(1.02);
+    }
+    /* 为了在图像下缘与内容过渡，添加轻微下缘暗角渐变（不覆盖文字，因为文字不在 hero 内） */
+    .hero::after{
+      content:"";
+      position:absolute;
+      inset:auto 0 0 0;
+      height:32%;
+      background: linear-gradient(180deg, rgba(7,10,26,0) 0%, rgba(7,10,26,.75) 100%);
+      pointer-events:none;
+      z-index:1;
+    }
+
+    /* 内容面板：从图像下缘上浮，视觉“重叠”，但不在图像容器中，满足“图片区无文字叠加” */
+    .content{
+      position:absolute;
+      left:0;
+      right:0;
+      bottom:0;
+      top: 60%; /* 内容开始的垂直位置（约2/3）*/
+      display:flex;
+      flex-direction:column;
+      gap: clamp(10px, 1.6vh, 16px);
+      padding: clamp(14px, 2.4vh, 22px) clamp(16px, 3.2vw, 24px);
+      background:
+        linear-gradient(180deg, rgba(15,21,52,.82) 0%, rgba(10,15,34,.92) 40%, rgba(8,12,27,.98) 100%);
+      backdrop-filter: blur(2px); /* 轻微磨砂，避免明显“背景色块”感 */
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+
+    /* 标题与层级排版 */
+    .kicker{
+      color: var(--desert-gold);
+      font-size: clamp(12px, 1.5vh, 13px);
+      letter-spacing:.1em;
+      text-transform: uppercase;
+      opacity:.95;
+    }
+    .title{
+      margin:0;
+      font-weight:800;
+      text-align:center;
+      font-size: clamp(22px, 3.2vh, 32px);
+      line-height:1.15;
+      letter-spacing:.02em;
+      color:#f7f9ff;
+      text-shadow: 0 2px 10px rgba(0,0,0,.25);
+    }
+    .subtitle{
+      margin:0;
+      text-align:center;
+      color:#eaf2ff;
+      font-size: clamp(13px, 2vh, 16px);
+      line-height:1.45;
+      opacity:.92;
+    }
+    .subtitle + .subtitle{
+      margin-top: .2em;
+    }
+
+    /* 信息栅格 */
+    .info{
+      display:grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: clamp(10px, 2vh, 16px);
+      align-items:start;
+    }
+    .block{
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: var(--radius);
+      padding: clamp(10px, 1.6vh, 14px) clamp(12px, 2.2vh, 16px);
+    }
+    .block h3{
+      margin:0 0 .35em 0;
+      font-size: clamp(12px, 1.8vh, 14px);
+      color: var(--mint);
+      font-weight:700;
+      letter-spacing:.04em;
+    }
+    .block p{
+      margin:.2em 0 0 0;
+      font-size: clamp(12px, 1.8vh, 14px);
+      line-height:1.5;
+      color:#f2f6ff;
+    }
+    .deadline{
+      color: var(--lemon);
+      font-weight:700;
+    }
+
+    /* CTA区 */
+    .cta{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:center;
+      margin-top: 2px;
+    }
+    .chip{
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, var(--orange), #ff7a2b);
+      color:#1a1308;
+      font-weight:800;
+      font-size: clamp(12px, 1.9vh, 14px);
+      border: 1px solid rgba(0,0,0,.08);
+      box-shadow: 0 6px 16px rgba(255,152,68,.25);
+    }
+    .chip.--alt{
+      background: linear-gradient(180deg, var(--grass-green), #5bb44c);
+      color:#06150a;
+      box-shadow: 0 6px 16px rgba(121,194,103,.22);
+    }
+
+    /* 底部：二维码/Logo 占位与联系方式 */
+    .footer{
+      margin-top:auto;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+    }
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .logo-badge{
+      width:38px; height:38px;
+      border-radius:10px;
+      background: radial-gradient(120% 120% at 30% 30%, var(--desert-gold), #e7b85a);
+      border:1px solid rgba(0,0,0,.15);
+      box-shadow: inset 0 2px 6px rgba(0,0,0,.15), 0 6px 14px rgba(0,0,0,.18);
+      display:grid; place-items:center;
+      color:#3b2a04;
+      font-weight:900;
+      font-size:14px;
+    }
+    .brand .text{
+      display:flex; flex-direction:column;
+      white-space:nowrap;
+    }
+    .brand .text b{
+      font-size: clamp(12px, 1.9vh, 14px);
+      color:#f3f7ff;
+    }
+    .brand .text span{
+      font-size: clamp(11px, 1.6vh, 12px);
+      color:#cfd9ff;
+      opacity:.9;
+    }
+
+    .qr{
+      display:flex; align-items:center; gap:10px;
+    }
+    .qr .code{
+      width:64px; height:64px; border-radius:10px;
+      background: #fff;
+      position:relative; overflow:hidden;
+      border: 2px solid #e8ecf1;
+      box-shadow: 0 6px 14px rgba(0,0,0,.18);
+    }
+    /* 简易二维码占位的几何图案（仅占位，后续替换） */
+    .qr .code::before,
+    .qr .code::after{
+      content:""; position:absolute; inset:8px; border:6px solid #0c1a3a; border-radius:4px;
+    }
+    .qr .code::after{ inset:22px; border-width:5px; border-color:#2c4c9a; }
+    .qr p{
+      margin:0;
+      font-size: clamp(11px, 1.7vh, 13px);
+      color:#eaf0ff;
+      line-height:1.45;
+    }
+
+    /* 角落口号 */
+    .corner-slogan{
+      position:absolute;
+      right: clamp(10px, 2.4vw, 16px);
+      top: clamp(10px, 2.4vw, 16px);
+      font-size: clamp(11px, 1.6vh, 12px);
+      color:#f8fbff;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.14);
+      padding: 6px 10px;
+      border-radius: 999px;
+      backdrop-filter: blur(2px);
+      letter-spacing:.02em;
+    }
+
+    /* 装饰贴纸/星星（不遮挡主体内容） */
+    .deco{
+      position:absolute; inset:0; pointer-events:none; z-index:2;
+    }
+    .star{
+      position:absolute; width:10px; height:10px; border-radius:50%;
+      background: radial-gradient(circle at 30% 30%, #fff, var(--lemon) 55%, rgba(255,255,255,0) 70%);
+      filter: drop-shadow(0 0 6px rgba(255,229,82,.65));
+      opacity:.9;
+    }
+    .star.s1{ top: 8%; left: 8%; }
+    .star.s2{ top: 14%; right: 10%; width:8px; height:8px; }
+    .star.s3{ top: 60%; left: 6%; width:9px; height:9px; }
+    .star.s4{ bottom: 20%; right: 8%; width:7px; height:7px; }
+
+    .sticker{
+      position:absolute; bottom: 28%; left: 6%;
+      display:flex; align-items:center; gap:8px;
+      color:#0c244a;
+      background: #fffef8;
+      border:2px solid #f6e6b0;
+      border-radius: 14px;
+      padding:6px 10px;
+      transform: rotate(-4deg);
+      box-shadow: 0 6px 14px rgba(0,0,0,.18);
+      font-size: clamp(11px, 1.6vh, 12px);
+    }
+    .sticker svg{
+      width:16px; height:16px;
+    }
+
+    /* 焦点可见性 */
+    .poster :focus{
+      outline: 2px solid var(--mint);
+      outline-offset:2px;
+    }
+
+    @media (max-width: 360px){
+      .info{ grid-template-columns: 1fr; }
+      .sticker{ display:none; } /* 小屏避免遮挡 */
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" role="main" aria-label="华清大学旅游协会内蒙古沙漠星空奇幻之旅 海报">
+    <article class="poster" aria-labelledby="title">
+      <!-- 装饰元素：星星与贴纸（简单 SVG / 形状），避免覆盖关键信息 -->
+      <div class="deco" aria-hidden="true">
+        <i class="star s1"></i>
+        <i class="star s2"></i>
+        <i class="star s3"></i>
+        <i class="star s4"></i>
+        <div class="sticker">
+          <!-- 指南针小贴纸（SVG 占位） -->
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="#FFFAE5" stroke="#e0c980" stroke-width="2"></circle>
+            <polygon points="12,5 9,15 12,13 15,9" fill="#ff9844" stroke="#9a4f1e" stroke-width="1"></polygon>
+          </svg>
+          探索向北
+        </div>
+      </div>
+
+      <!-- 主视觉大图：不叠加文字 -->
+      <section class="hero" aria-label="主视觉图片：内蒙古沙漠与星空">
+        <img src="shamo_haibao_step2_generation_output0.png"
+             alt="内蒙古沙漠夜色星空下，三位大学生围坐帐篷与篝火旁，青春探索氛围浓厚"
+             loading="lazy" />
+      </section>
+
+      <!-- 角落口号 -->
+      <div class="corner-slogan" aria-label="海报角落口号">带上伙伴，一起勇敢向北！</div>
+
+      <!-- 文案内容区：与图像区域上下重叠，但不在图像元素之上，确保“图片区无文字叠加” -->
+      <section class="content" aria-label="招募信息与报名方式">
+        <div class="kicker" aria-hidden="true">HUaQing Travel Assoc.</div>
+        <h1 class="title" id="title">内蒙古沙漠星空 3天2晚奇幻之旅</h1>
+        <p class="subtitle">一场跨越草原与星空的大冒险，仅限本校同学报名</p>
+        <p class="subtitle">发现未知，遇见更好的自己！</p>
+
+        <div class="info" role="group" aria-label="活动信息">
+          <div class="block" aria-label="主办方与说明">
+            <h3>主办信息</h3>
+            <p>主办：华清大学旅游协会</p>
+            <p>组队结伴｜行程包含沙漠徒步、星空露营与篝火夜谈</p>
+          </div>
+          <div class="block" aria-label="报名与时间">
+            <h3>报名与时间</h3>
+            <p class="deadline">报名截止：8月15日</p>
+            <p>报名方式：扫码或联系小助手加入旅途群</p>
+          </div>
+        </div>
+
+        <div class="cta" role="group" aria-label="行动号召">
+          <span class="chip" aria-label="行动号召：组队出发，青春无悔">组队出发，青春无悔</span>
+          <span class="chip --alt" aria-label="行动号召：限额招募，速来报名">限额招募，速来报名！</span>
+        </div>
+
+        <div class="footer" aria-label="底部信息与报名二维码">
+          <div class="brand" aria-label="协会标识">
+            <div class="logo-badge" aria-hidden="true">旅</div>
+            <div class="text">
+              <b>华清大学旅游协会</b>
+              <span>一路向北 · 星空相伴</span>
+            </div>
+          </div>
+          <div class="qr">
+            <!-- 二维码占位：可替换为实际二维码图片 -->
+            <div class="code" role="img" aria-label="报名二维码占位"></div>
+            <p>扫码报名或添加小助手<br/>加入旅途群</p>
+          </div>
+        </div>
+      </section>
+    </article>
+  </main>
+</body>
+</html>

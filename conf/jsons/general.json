@@ -1,0 +1,8 @@
+{
+  "llm_model": "gemini-3-flash-preview",
+  "api_port": 9014,
+  "app_name": "AI Tutor",
+  "user_id_default": "art_user_001",
+  "session_id_default_prefix": "ai_tutor_session_",
+  "max_iterations_orchestrator": 100
+}

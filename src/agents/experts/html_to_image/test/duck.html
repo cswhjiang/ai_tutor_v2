@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>英语单词学习卡片 | duck</title>
+  <style>
+    /* 基础变量与排版 */
+    :root{
+      --card-w: 1080px;
+      --card-h: 1920px;
+      --info-bg: #f7fbff; /* 纯净、极浅清新底色（不使用卡片/阴影/边框） */
+      --ipa-size: 58px;
+      --zh-size: 68px;
+      --en-size: 42px;
+      --cn-size: 40px;
+      --gap-ipa-zh: 30px;
+      --gap-zh-sent: 40px;
+      --gap-en-cn: 18px;
+      --pad-info: 50px;
+      --red: #e74c3c; /* 目标单词高亮色 */
+      --text-555: #555;
+      --text-333: #333;
+      --text-666: #666;
+      --text-777: #777;
+    }
+
+    /* 页面背景轻柔，卡片本身无任何描边/阴影/圆角/外框 */
+    body{
+      margin:0;
+      background: linear-gradient(180deg, #f5fbff 0%, #f9fff8 100%); /* 柔和通透背景，仅作页面大底，不是卡片外框 */
+      font-family: "Poppins","Inter",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+      color:#222;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-height:100vh;
+    }
+
+    /* 卡片容器：固定基准 1080×1920，可在小屏自适应缩放到屏宽/高以内，无任何圆角或边框 */
+    .card{
+      width: min(1080px, 100vw);
+      height: min(1920px, 100vh);
+      aspect-ratio: 1080 / 1920;
+      display: grid;
+      grid-template-rows: 70% 30%;
+      background: #fff; /* 作为承载底，仅防止图像未加载时的空白，不是边框或卡片效果 */
+      box-sizing: border-box;
+      overflow: hidden; /* 确保上半部分插图满幅贴边 */
+    }
+
+    /* 上半部分：满幅贴边、禁止圆角、无外框。仅图像对象允许自身描边（由插图决定） */
+    .hero{
+      padding:0;              /* 零内边距，确保贴边 */
+      margin:0;
+      position:relative;
+      overflow:hidden;        /* 确保full-bleed */
+      border-radius:0;        /* 强制直角 */
+    }
+    .hero img{
+      width:100%;
+      height:100%;
+      object-fit: cover;      /* 不变形填充，满幅贴边 */
+      display:block;
+      border:none;
+      outline:none;
+      image-rendering:auto;
+    }
+
+    /* 下半部分：纯净背景、全部文本居中、无卡片/阴影/边框 */
+    .info{
+      background: var(--info-bg);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      padding: var(--pad-info);
+      box-sizing: border-box;
+    }
+    .info-inner{
+      width: 100%;
+      max-width: 920px; /* 适度控制行长，保证阅读清晰 */
+      margin: 0 auto;
+    }
+
+    /* 文本样式严格按规范（以1080×1920为基准像素） */
+    .ipa{
+      font-size: var(--ipa-size);
+      line-height: 1.2;
+      color: var(--text-555);
+      margin: 0;
+    }
+    .zh{
+      font-size: var(--zh-size);
+      line-height: 1.25;
+      color: var(--text-333);
+      font-weight: 700;
+      margin: var(--gap-ipa-zh) 0 var(--gap-zh-sent);
+    }
+    .en{
+      font-size: var(--en-size);
+      line-height: 1.4;
+      color: var(--text-666);
+      margin: 0;
+    }
+    .en .highlight{
+      color: var(--red);
+    }
+    .cn{
+      font-size: var(--cn-size);
+      line-height: 1.45;
+      color: var(--text-777);
+      margin: var(--gap-en-cn) 0 0;
+    }
+
+    /* 焦点可见性（可访问性） */
+    a, button{
+      outline-color:#333;
+      outline-offset:2px;
+    }
+
+    /* 说明性注释（无交互，不显示任何风格选择 UI） */
+    /* 若需使用 Web 字体，可在此处引入 @font-face；当前使用系统与常见英文字体作为回退方案 */
+  </style>
+</head>
+<body>
+  <main class="card" role="main" aria-label="英语单词学习卡片：duck">
+    <!-- 上半部分：治愈卡通插图（NanoBanana 生成），满幅贴边、无圆角、无外框 -->
+    <!-- 注意：插图中“duck”单词应作为画面有机元素出现，大小约60–75px，并留足边距。 -->
+    <section class="hero" aria-label="插图区域（满幅贴边，无外框与圆角）">
+      <img src="duck_step2_generation_output0.png"
+           alt="治愈系卡通插图：一只软萌黄鸭在水边，清新马卡龙色，画面简洁通透；插图内含英文单词 duck（卡通风格字体），满幅贴边、四角直角、无任何外框或圆角。"
+           loading="eager" decoding="sync" />
+    </section>
+
+    <!-- 下半部分：信息展示区（纯净背景、全部文本居中、无卡片/阴影/边框） -->
+    <section class="info" aria-label="信息展示区">
+      <div class="info-inner">
+        <!-- 1) 音标（/dʌk/，58px，#555） -->
+        <p class="ipa" aria-label="音标">/dʌk/</p>
+
+        <!-- 2) 中文释义（加粗，68px，#333） -->
+        <p class="zh" aria-label="中文释义">鸭子</p>
+
+        <!-- 3) 英文例句（42px，#666；目标单词标红 #e74c3c） -->
+        <p class="en" aria-label="英文例句">
+          The <span class="highlight">duck</span> is swimming on the lake.
+        </p>
+
+        <!-- 4) 中文翻译（40px，#777；与英文例句间距18px） -->
+        <p class="cn" aria-label="中文翻译">这只鸭子正在湖面上游泳。</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
