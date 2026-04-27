@@ -66,11 +66,39 @@ def _normalize_model_for_litellm(model_name: str) -> str:
     return value
 
 
-def _build_gemini_thinking_config() -> Optional[types.ThinkingConfig]:
-    """Build Gemini thinking config from system settings."""
-    thinking_kwargs: dict[str, Any] = {}
+def _resolve_gemini_thinking_level(reasoning_effort: Optional[str]) -> Optional[str]:
+    """
+    Resolve Gemini thinking level.
+
+    A per-call reasoning effort takes precedence over the global setting so
+    latency-sensitive agents can explicitly request a cheaper mode.
+    """
+    if reasoning_effort is not None:
+        normalized_effort = reasoning_effort.strip().lower()
+        effort_to_level = {
+            "minimal": "MINIMAL",
+            "low": "LOW",
+            "medium": "MEDIUM",
+            "high": "HIGH",
+        }
+        if normalized_effort in effort_to_level:
+            return effort_to_level[normalized_effort]
+
+        explicit_level = normalized_effort.upper()
+        if explicit_level in types.ThinkingLevel.__members__:
+            return explicit_level
+
+        raise ValueError(f"Unsupported Gemini reasoning_effort: {reasoning_effort}")
 
     thinking_level = (SYS_CONFIG.gemini_thinking_level or "").strip().upper()
+    return thinking_level or None
+
+
+def _build_gemini_thinking_config(reasoning_effort: Optional[str] = None) -> Optional[types.ThinkingConfig]:
+    """Build Gemini thinking config from per-call or system settings."""
+    thinking_kwargs: dict[str, Any] = {}
+
+    thinking_level = _resolve_gemini_thinking_level(reasoning_effort)
     if thinking_level:
         if thinking_level not in types.ThinkingLevel.__members__:
             raise ValueError(f"Unsupported gemini_thinking_level: {thinking_level}")
@@ -111,7 +139,7 @@ def build_model_and_config(
     """
     if is_gemini_model(model_name):
         config_kwargs: dict[str, Any] = {}
-        thinking_config = _build_gemini_thinking_config()
+        thinking_config = _build_gemini_thinking_config(reasoning_effort)
         if thinking_config is not None:
             config_kwargs["thinking_config"] = thinking_config
         if response_json:
