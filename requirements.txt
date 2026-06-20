@@ -1,4 +1,4 @@
-google-adk>=1.26.0
+google-adk[extensions]==2.3.0
 google-genai
 google-cloud-aiplatform
 pillow
