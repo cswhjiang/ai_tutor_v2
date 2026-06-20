@@ -1,48 +1,71 @@
 import asyncio
 import os
+
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.genai import types
 
-# 确保环境变量已设置
-os.environ["OPENAI_API_KEY"] = "你的_OPENAI_API_KEY"
+
+APP_NAME = "ai_tutor_adk_demo"
+USER_ID = "demo_user"
+SESSION_ID = "demo_session"
+DEFAULT_MODEL = "openai/gpt-4o"
+
+
+def build_demo_agent(model_name: str = DEFAULT_MODEL) -> LlmAgent:
+    """Build a minimal ADK 2.3 LiteLLM agent for local smoke testing."""
+    return LlmAgent(
+        name="CodexAgent",
+        model=LiteLlm(model=model_name),
+        instruction="你是一个精通系统架构的资深开发专家。",
+    )
+
+
+def test_build_demo_agent_uses_adk_23_litellm_model_argument():
+    """Verify the demo uses ADK 2.3 compatible LiteLLM construction."""
+    agent = build_demo_agent()
+
+    assert agent.name == "CodexAgent"
+    assert isinstance(agent.model, LiteLlm)
 
 
 async def main():
-    # 1. 定义模型配置 (GPT-5.3-Codex)
-    # 2026版 LiteLlm 字符串必须带 openai/ 前缀
-    codex_model = LiteLlm(model_id="openai/gpt-5.3-codex")
+    """Run the demo against a real LiteLLM provider when credentials exist."""
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY must be set before running this demo.")
 
-    # 2. 定义 Agent
-    # 注意：最新版参数名是 instruction (单数)，tools (代替 skills)
-    agent = LlmAgent(
-        name="CodexAgent",
-        model=codex_model,
-        instruction="你是一个精通系统架构的资深开发专家。"
+    agent = build_demo_agent(os.getenv("DEMO_LITELLM_MODEL", DEFAULT_MODEL))
+    session_service = InMemorySessionService()
+    session = await session_service.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+    )
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service,
     )
 
-    # 3. 初始化会话服务和运行器 (这是 2026 版的关键)
-    session_service = InMemorySessionService()
-    runner = Runner(agent=agent, session_service=session_service)
+    message = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text="请分析 Python 的 GIL 对并发死锁的影响。")],
+    )
 
-    # 4. 运行并获取响应
-    # 最新版 Runner.run() 返回的是一个同步的生成器或异步对象
-    # 对于简单测试，直接使用 run 即可
-    print("--- 正在连接 GPT-5.3-Codex ---")
+    print(f"--- Running {agent.model.model} through ADK 2.3 ---")
 
-    try:
-        # 传入 session_id 是必须的，用于维持上下文
-        response = runner.run(
-            input="请分析 Python 的 GIL 对并发死锁的影响。",
-            session_id="test_session_1"
-        )
+    async for event in runner.run_async(
+        user_id=USER_ID,
+        session_id=session.id,
+        new_message=message,
+    ):
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if part.text:
+                    print(part.text)
 
-        # 打印响应文本
-        print(f"\n[Codex 响应]:\n{response.text}")
-
-    except Exception as e:
-        print(f"运行失败: {e}")
 
 
 if __name__ == "__main__":
