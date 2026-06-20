@@ -1,18 +1,115 @@
 {
-  "llm_model": "gemini/gemini-3-flash-preview",
-  "openai_reasoning_effort": "high", //low / medium / high
-  "gemini_thinking_level": "high", // LOW / MEDIUM / HIGH / MINIMAL
+  "llm_model": "gemini/gemini-3.5-flash",
+  "openai_reasoning_effort": "medium", //low / medium / high
+  "gemini_thinking_level": "medium", // LOW / MEDIUM / HIGH / MINIMAL
   "gemini_thinking_budget": null,
-  "orchestrator_llm_model": "gemini/gemini-3-flash-preview",
-  "critic_llm_model": "gemini/gemini-3-flash-preview",
   "plan_critic_iter_num": 0,
-  "html_gen_llm_model": "gemini/gemini-3.1-pro-preview",
-  "code_gen_llm_model":  "openai/gpt-5.4",
-//  "code_gen_llm_model":  "anthropic/claude-opus-4-6",
-//  "code_gen_llm_model":  "gemini/gemini-3.1-pro-preview", //"gemini/gemini-3-pro-preview", "openai/gpt-5.2"（不好用）, "openai/gpt-5.3-codex",
-  "article_llm_model": "openai/gpt-5.4",
-  "science_llm_model": "gemini/gemini-3-flash-preview",
-  "solution_llm_model": "openai/gpt-5.4",
+  "agent_llm_configs": {
+    "OrchestratorAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "PlannerAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
+    "CriticAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
+    "FastMathVideoGenerationAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "SolutionAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "ShotAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "CodeGenerationAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "high"
+    },
+    "HTMLGenerationAgent": {
+      "llm_model": "gemini/gemini-3.1-pro-preview",
+      "reasoning_level": "medium"
+    },
+    "ScienceAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
+    "ArticleGenerationAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "ArticleDraftAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "ArticleFinalizeAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "PPTDraftAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "PPTFinalizeAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "PPTv2DraftAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "PPTv2FinalizeAgent": {
+      "llm_model": "gemini/gemini-3.1-pro-preview",
+      "reasoning_level": "medium"
+    },
+    "ExtractorAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "ReadArtifactAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "SearchQueryAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "DRQueryAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "DRExtractorAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    },
+    "DRReportAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
+    "PosterDraftAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "PosterFinalizeAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "PosterImageCombineAgent": {
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "medium"
+    },
+    "prompt_enhancement": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
+    }
+  },
   "api_port": "9501",
   "app_name": "AI Tutor",
   "user_id_default": "art_user_default_001",

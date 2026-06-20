@@ -10,7 +10,7 @@ from google.genai.types import Blob, Content, Part
 
 from conf.system import SYS_CONFIG
 from src.agents.experts.math_video.fast_template_renderer import fast_manim_to_video
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
 from src.utils import clean_json_string
 
@@ -83,12 +83,18 @@ class FastMathVideoGenerationAgent(BaseAgent):
         legacy_agent: BaseAgent | None = None,
     ):
         if not llm_model:
-            llm_model = SYS_CONFIG.science_llm_model
-        logger.info(f"FastMathVideoGenerationAgent: using llm: {llm_model}")
+            llm_model = SYS_CONFIG.llm_model
+        agent_config_name = "FastMathVideoGenerationAgent"
+        resolved_llm_model, _ = resolve_agent_llm_settings(
+            llm_model,
+            agent_name=agent_config_name,
+        )
+        logger.info(f"{name} ({agent_config_name}): using llm: {resolved_llm_model}")
         model_kwargs = build_model_kwargs(
             llm_model,
             response_json=True,
             reasoning_effort="low",
+            agent_name=agent_config_name,
         )
         llm = LlmAgent(
             name=f"{name}ScriptAgent",

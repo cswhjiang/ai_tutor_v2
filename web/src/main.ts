@@ -11,6 +11,8 @@ type AppState = {
   username: string;
   busy: boolean;
   messages: ChatMessage[];
+  activeAssistantMessageId: string | null;
+  assistantStreamedThisTurn: boolean;
   statusSteps: string[];
   statusExpanded: boolean;
   videos: string[];
@@ -24,6 +26,8 @@ const state: AppState = {
   username: "web_user",
   busy: false,
   messages: [],
+  activeAssistantMessageId: null,
+  assistantStreamedThisTurn: false,
   statusSteps: [],
   statusExpanded: false,
   videos: [],
@@ -142,6 +146,8 @@ async function handleSubmit(): Promise<void> {
 
   state.statusSteps = [];
   state.statusExpanded = false;
+  state.activeAssistantMessageId = null;
+  state.assistantStreamedThisTurn = false;
   state.videos = [];
   state.filenames = [];
   state.finalText = "";
@@ -178,6 +184,17 @@ function handleAgentEvent(event: AgentEvent): void {
 
   if (event.type === "error") {
     addMessage("system", event.content, "error");
+    finalizeActiveAssistantMessage();
+    return;
+  }
+
+  if (event.type === "assistant_delta") {
+    appendAssistantDelta(event.content);
+    return;
+  }
+
+  if (event.type === "assistant_message") {
+    mergeAssistantMessage(event.content);
     return;
   }
 
@@ -185,8 +202,12 @@ function handleAgentEvent(event: AgentEvent): void {
 }
 
 function handleFinalContent(content: FinalContent): void {
-  const finalSummary = content.text || "任务完成";
-  addMessage("assistant", finalSummary, "final");
+  const finalSummary = content.text?.trim();
+  if (finalSummary && !state.assistantStreamedThisTurn) {
+    addMessage("assistant", finalSummary, "final");
+  } else {
+    finalizeActiveAssistantMessage();
+  }
 
   state.finalText = content.final_output_text || "";
   state.filenames = content.filenames || [];
@@ -202,6 +223,70 @@ function addStatusStep(text: string): void {
 
   state.statusSteps.push(normalized);
   render();
+}
+
+function appendAssistantDelta(text: string): void {
+  if (!text) {
+    return;
+  }
+
+  const message = getOrCreateActiveAssistantMessage();
+  message.text += text;
+  message.variant = "streaming";
+  state.assistantStreamedThisTurn = true;
+  render();
+}
+
+function mergeAssistantMessage(text: string): void {
+  const normalized = text.trim();
+  if (!normalized) {
+    return;
+  }
+
+  const message = getOrCreateActiveAssistantMessage();
+  if (!message.text || normalized.startsWith(message.text)) {
+    message.text = normalized;
+  } else if (!message.text.endsWith(normalized)) {
+    message.text = `${message.text}\n${normalized}`;
+  }
+  message.variant = "streaming";
+  state.assistantStreamedThisTurn = true;
+  render();
+}
+
+function getOrCreateActiveAssistantMessage(): ChatMessage {
+  if (state.activeAssistantMessageId) {
+    const existing = state.messages.find(
+      (message) => message.id === state.activeAssistantMessageId,
+    );
+    if (existing) {
+      return existing;
+    }
+  }
+
+  const message: ChatMessage = {
+    id: crypto.randomUUID(),
+    role: "assistant",
+    text: "",
+    variant: "streaming",
+  };
+  state.messages.push(message);
+  state.activeAssistantMessageId = message.id;
+  return message;
+}
+
+function finalizeActiveAssistantMessage(): void {
+  if (!state.activeAssistantMessageId) {
+    return;
+  }
+
+  const message = state.messages.find(
+    (item) => item.id === state.activeAssistantMessageId,
+  );
+  if (message && message.text.trim()) {
+    message.variant = "final";
+  }
+  state.activeAssistantMessageId = null;
 }
 
 function addMessage(

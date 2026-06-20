@@ -11,9 +11,7 @@ from google.genai.types import Content, Part
 
 from server.agents_manager import session_service, artifact_service, expert_runners
 from server.utils.common import set_initial_state
-from src.agents.orchestrator.tool_calling_orchestrator_agent import (
-    create_tool_calling_orchestrator_agent,
-)
+from src.agents.orchestrator.tool_calling_orchestrator_agent import create_orchestrator_agent
 from src.agents.executor.executor_agent import AgentInvocationService
 from conf.system import SYS_CONFIG
 from src.logger import logger
@@ -227,9 +225,7 @@ async def chat_with_agent(
         executor.save_dir = images_dir
 
         # --- 创建总指挥Agent的Runner：直接通过function call调用工具，不再生成plan ---
-        orchestrator_agent = create_tool_calling_orchestrator_agent(
-            llm_model=SYS_CONFIG.orchestrator_llm_model,
-        )
+        orchestrator_agent = create_orchestrator_agent()
         orchestrator_runner = Runner(
             agent=orchestrator_agent,
             app_name=SYS_CONFIG.app_name,
@@ -242,7 +238,7 @@ async def chat_with_agent(
         else:
             yield format_sse_event({"type": "step", "content": "Orchestrator is handling the request..."})
 
-        final_summary = await executor.run_agent_and_log_events(
+        async for app_event in executor.stream_agent_events(
             orchestrator_runner,
             user_id=uid,
             session_id=sid,
@@ -250,7 +246,10 @@ async def chat_with_agent(
                 role='user',
                 parts=[Part(text=f"请处理用户最新任务：{message}")]
             ),
-        )
+        ):
+            yield format_sse_event(app_event)
+
+        final_summary = executor.latest_final_response_text
         if not final_summary:
             final_summary = "The task process has finished."
 

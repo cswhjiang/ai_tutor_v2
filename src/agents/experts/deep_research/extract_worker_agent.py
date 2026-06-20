@@ -18,7 +18,7 @@ from google.genai.types import Content
 
 from conf.system import SYS_CONFIG
 from src.logger import logger
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 
 # 从 deep_research/search_output_{run_id} 读取搜索结果
 async def extractor_before_model_callback(callback_context: CallbackContext, llm_request: LlmRequest, run_id: int):
@@ -56,10 +56,11 @@ class DRExtractorAgent(BaseAgent):
 
         if not llm_model:
             llm_model = SYS_CONFIG.llm_model
-        logger.info(f"DRExtractorAgent: using llm: {llm_model}")
+        resolved_llm_model, _ = resolve_agent_llm_settings(llm_model, agent_name=name)
+        logger.info(f"{name}: using llm: {resolved_llm_model}")
         # description = "根据用户的任务信息，分析搜索得到的长文本，提取出来里面和任务相关的要点信息。"
 
-        model_kwargs = build_model_kwargs(llm_model)
+        model_kwargs = build_model_kwargs(llm_model, agent_name=name)
 
         # llm无法获取session中之前的content
         extractor_before_model_callback_partial = partial(extractor_before_model_callback, run_id=run_id )
@@ -153,4 +154,3 @@ dr_extractor_instruction = """
 
 下面开始任务
 """
-

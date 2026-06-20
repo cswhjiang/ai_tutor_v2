@@ -22,7 +22,7 @@ from google.genai.types import Content
 
 from conf.system import SYS_CONFIG
 from src.logger import logger
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.utils import clean_json_string
 
 
@@ -133,8 +133,9 @@ class HTMLGenerationAgent(BaseAgent):
             llm_model: str = ''
     ):
         if not llm_model:
-            llm_model = SYS_CONFIG.html_gen_llm_model
-        logger.info(f"HTMLGenerationAgent: using llm: {llm_model}")
+            llm_model = SYS_CONFIG.llm_model
+        resolved_llm_model, _ = resolve_agent_llm_settings(llm_model, agent_name=name)
+        logger.info(f"{name}: using llm: {resolved_llm_model}")
         # description = '''
         # 一个专业的网页视觉设计师，接受用户输入的一个网页生成任务，有时还会有数量不等的参考图片或者html代码。
         # 任务是根据需求和参考输出图像设计方案，然后生成html代码。
@@ -145,7 +146,7 @@ class HTMLGenerationAgent(BaseAgent):
         #         llm_model = LiteLlm(model=llm_model, extra_body={"reasoning_effort": "low"})
         #     else:
         #         llm_model = LiteLlm(model=llm_model)
-        model_kwargs = build_model_kwargs(llm_model, response_json=True)
+        model_kwargs = build_model_kwargs(llm_model, response_json=True, agent_name=name)
 
         time_str = datetime.date.today().strftime("%Y-%m-%d")
         # llm无法获取session中之前的content
@@ -415,4 +416,3 @@ html_generation_instruction = """
 
 
 """
-

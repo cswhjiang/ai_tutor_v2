@@ -18,7 +18,7 @@ from google.genai.types import Content
 
 from conf.system import SYS_CONFIG
 from src.logger import logger
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 
 time_str = datetime.date.today().strftime("%Y-%m-%d")
 
@@ -46,10 +46,11 @@ class DRQueryAgent(BaseAgent):
     ):
         if not llm_model:
             llm_model = SYS_CONFIG.llm_model
-        logger.info(f"DRQueryAgent: using llm: {llm_model}")
+        resolved_llm_model, _ = resolve_agent_llm_settings(llm_model, agent_name=name)
+        logger.info(f"{name}: using llm: {resolved_llm_model}")
         description = "可以根据用户的任务信息，分析并输出需要搜索的query列表。"
 
-        model_kwargs = build_model_kwargs(llm_model)
+        model_kwargs = build_model_kwargs(llm_model, agent_name=name)
 
         # llm无法获取session中之前的content
         llm = LlmAgent(
@@ -156,4 +157,3 @@ dr_search_query_instruction = """
 下面开始任务
 
 """
-

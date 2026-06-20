@@ -18,7 +18,7 @@ from google.genai.types import Content
 
 from conf.system import SYS_CONFIG
 from src.logger import logger
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 
 
 def _normalize_model_for_litellm(model_name: str) -> str:
@@ -90,11 +90,12 @@ class CodeGenerationAgent(BaseAgent):
             llm_model: str = ''
     ):
         if not llm_model:
-            llm_model = SYS_CONFIG.code_gen_llm_model
+            llm_model = SYS_CONFIG.llm_model
         llm_model = _normalize_model_for_litellm(llm_model)
-        logger.info(f"CodeGenerationAgent: using llm: {llm_model}")
+        resolved_llm_model, _ = resolve_agent_llm_settings(llm_model, agent_name=name)
+        logger.info(f"{name}: using llm: {resolved_llm_model}")
 
-        model_kwargs = build_model_kwargs(llm_model, response_json=True)
+        model_kwargs = build_model_kwargs(llm_model, response_json=True, agent_name=name)
 
 
         time_str = datetime.date.today().strftime("%Y-%m-%d")

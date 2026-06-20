@@ -68,7 +68,10 @@ async def prompt_enhancement_tool(ctx: InvocationContext, prompt: str) -> AsyncG
         llm_request.contents.append(Content(role='user', parts=[Part(text=user_prompt)]))
 
     llm_model = SYS_CONFIG.llm_model
-    model_kwargs = build_model_kwargs(llm_model)
+    model_kwargs = build_model_kwargs(
+        llm_model,
+        agent_name="prompt_enhancement",
+    )
 
     llm = LlmAgent(
         name="prompt_enhancement",

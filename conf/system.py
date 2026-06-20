@@ -1,7 +1,32 @@
 import os
 import json5
 from conf.path import CONF_ROOT
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
+
+class AgentLLMConfig(BaseModel):
+    """Per-agent LLM model and reasoning settings."""
+
+    llm_model: str | None = None
+    reasoning_level: str | None = None
+
+    @field_validator("llm_model", mode="before")
+    @classmethod
+    def normalize_llm_model(cls, value: str | None) -> str | None:
+        """Normalize blank model values to None."""
+        if value is None:
+            return None
+        normalized_value = str(value).strip()
+        return normalized_value or None
+
+    @field_validator("reasoning_level", mode="before")
+    @classmethod
+    def normalize_reasoning_level(cls, value: str | None) -> str | None:
+        """Normalize provider-neutral reasoning level names."""
+        if value is None:
+            return None
+        normalized_value = str(value).strip().lower()
+        return normalized_value or None
 
 
 class SystemConfig(BaseModel):
@@ -10,17 +35,11 @@ class SystemConfig(BaseModel):
     """
 
     llm_model: str
-    orchestrator_llm_model: str
-    critic_llm_model: str
     plan_critic_iter_num: int
-    html_gen_llm_model: str
-    code_gen_llm_model: str
-    article_llm_model: str
-    science_llm_model: str
-    solution_llm_model: str
     openai_reasoning_effort: str | None = "low"
     gemini_thinking_level: str = "LOW"
     gemini_thinking_budget: int | None = None
+    agent_llm_configs: dict[str, AgentLLMConfig] = Field(default_factory=dict)
     api_port: int
     app_name: str
     user_id_default: str

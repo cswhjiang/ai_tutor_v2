@@ -14,6 +14,7 @@ from src.agents.orchestrator.tool_calling_orchestrator_agent import (
     _build_history_context_from_state,
     _input_image_names,
     _parse_math_video_tool_request,
+    create_orchestrator_agent,
     MathVideoToolAgent,
 )
 
@@ -87,6 +88,12 @@ def test_parse_math_video_tool_request_falls_back_to_legacy_prompt():
         "prompt": "直接生成视频",
         "math_video_mode": "legacy",
     }
+
+
+def test_create_orchestrator_agent_uses_runtime_name():
+    agent = create_orchestrator_agent()
+
+    assert agent.name == "OrchestratorAgent"
 
 
 def test_math_video_tool_agent_sets_current_parameters_and_output():

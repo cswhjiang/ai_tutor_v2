@@ -18,7 +18,7 @@ from google.genai.types import Content
 
 from conf.system import SYS_CONFIG
 from src.logger import logger
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 
 
 async def ppt_before_model_callback(callback_context: CallbackContext, llm_request: LlmRequest):
@@ -101,15 +101,24 @@ class PPTFinalizeAgent(BaseAgent):
         llm_model: str = ''
     ):
         if not llm_model:
-            llm_model = SYS_CONFIG.html_gen_llm_model
-        logger.info(f"PPTFinalizeAgent: using llm: {llm_model}")
+            llm_model = SYS_CONFIG.llm_model
+        agent_config_name = "PPTv2FinalizeAgent"
+        resolved_llm_model, _ = resolve_agent_llm_settings(
+            llm_model,
+            agent_name=agent_config_name,
+        )
+        logger.info(f"{name} ({agent_config_name}): using llm: {resolved_llm_model}")
 
         # if 'gemini' not in llm_model:
         #     if 'gpt-5' in llm_model:
         #         llm_model = LiteLlm(model=llm_model, extra_body={"reasoning_effort": "high"})
         #     else:
         #         llm_model = LiteLlm(model=llm_model)
-        model_kwargs = build_model_kwargs(llm_model, response_json=True)
+        model_kwargs = build_model_kwargs(
+            llm_model,
+            response_json=True,
+            agent_name=agent_config_name,
+        )
 
         time_str = datetime.date.today().strftime("%Y-%m-%d")
         # llm无法获取session中之前的content
@@ -671,4 +680,3 @@ createPresentation().catch(console.error);
 下面开始任务
 
 """
-

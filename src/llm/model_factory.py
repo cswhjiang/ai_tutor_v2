@@ -94,6 +94,43 @@ def _resolve_gemini_thinking_level(reasoning_effort: Optional[str]) -> Optional[
     return thinking_level or None
 
 
+def get_agent_llm_config(agent_name: Optional[str]):
+    """Return the configured LLM override for an agent name, if any."""
+    if not agent_name:
+        return None
+
+    agent_configs = SYS_CONFIG.agent_llm_configs or {}
+    if agent_name in agent_configs:
+        return agent_configs[agent_name]
+
+    normalized_agent_name = agent_name.lower()
+    for configured_name, config in agent_configs.items():
+        if configured_name.lower() == normalized_agent_name:
+            return config
+
+    return None
+
+
+def resolve_agent_llm_settings(
+    model_name: str,
+    *,
+    agent_name: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
+) -> tuple[str, Optional[str]]:
+    """Resolve model and reasoning settings with per-agent overrides."""
+    agent_config = get_agent_llm_config(agent_name)
+    if agent_config is None:
+        return model_name, reasoning_effort
+
+    resolved_model_name = agent_config.llm_model or model_name
+    resolved_reasoning_effort = (
+        agent_config.reasoning_level
+        if agent_config.reasoning_level is not None
+        else reasoning_effort
+    )
+    return resolved_model_name, resolved_reasoning_effort
+
+
 def _build_gemini_thinking_config(reasoning_effort: Optional[str] = None) -> Optional[types.ThinkingConfig]:
     """Build Gemini thinking config from per-call or system settings."""
     thinking_kwargs: dict[str, Any] = {}
@@ -130,6 +167,7 @@ def build_model_and_config(
     *,
     response_json: bool = False,
     reasoning_effort: Optional[str] = None,
+    agent_name: Optional[str] = None,
 ) -> tuple[Any, Optional[types.GenerateContentConfig]]:
     """
     Build an ADK model instance and optional native Gemini config.
@@ -137,6 +175,12 @@ def build_model_and_config(
     Gemini models use the native ADK Gemini adapter so thinking config is
     handled by ADK directly. Other models continue to use LiteLLM.
     """
+    model_name, reasoning_effort = resolve_agent_llm_settings(
+        model_name,
+        agent_name=agent_name,
+        reasoning_effort=reasoning_effort,
+    )
+
     if is_gemini_model(model_name):
         config_kwargs: dict[str, Any] = {}
         thinking_config = _build_gemini_thinking_config(reasoning_effort)
@@ -171,12 +215,14 @@ def build_model_kwargs(
     *,
     response_json: bool = False,
     reasoning_effort: Optional[str] = None,
+    agent_name: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return keyword arguments that can be passed directly to `LlmAgent`."""
     model, generate_content_config = build_model_and_config(
         model_name,
         response_json=response_json,
         reasoning_effort=reasoning_effort,
+        agent_name=agent_name,
     )
     model_kwargs = {"model": model}
     if generate_content_config is not None:

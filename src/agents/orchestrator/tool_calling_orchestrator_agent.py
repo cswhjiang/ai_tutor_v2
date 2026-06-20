@@ -12,7 +12,7 @@ from google.genai.types import Content, Part
 
 from conf.system import SYS_CONFIG
 from src.agents.experts.math_video.math_video_generation_agent import math_video_generation_agent
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
 
 
@@ -176,17 +176,24 @@ async def direct_orchestrator_before_model_callback(
     )
 
 
-def create_tool_calling_orchestrator_agent(
+def create_orchestrator_agent(
     llm_model: str = "",
 ) -> LlmAgent:
     """Create an orchestrator that calls math-video generation as an AgentTool."""
     if not llm_model:
-        llm_model = SYS_CONFIG.orchestrator_llm_model
-    logger.info(f"ToolCallingOrchestratorAgent: using llm: {llm_model}")
+        llm_model = SYS_CONFIG.llm_model
+    resolved_llm_model, _ = resolve_agent_llm_settings(
+        llm_model,
+        agent_name="OrchestratorAgent",
+    )
+    logger.info(f"OrchestratorAgent: using llm: {resolved_llm_model}")
 
-    model_kwargs = build_model_kwargs(llm_model)
+    model_kwargs = build_model_kwargs(
+        llm_model,
+        agent_name="OrchestratorAgent",
+    )
     return LlmAgent(
-        name="ToolCallingOrchestratorAgent",
+        name="OrchestratorAgent",
         **model_kwargs,
         description="Route user tutoring requests to ADK tools.",
         instruction=DIRECT_ORCHESTRATOR_INSTRUCTION,

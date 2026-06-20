@@ -1,8 +1,9 @@
 import os.path
-from typing import Optional, Any, Dict
+from typing import AsyncGenerator, Optional, Any, Dict
 
 
 from google.adk.artifacts import InMemoryArtifactService
+from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -34,17 +35,161 @@ class AgentInvocationService:
         self.username = username
 
         self.expert_runners = expert_runners
+        self.latest_final_response_text = ""
 
     async def run_agent_and_log_events(self, runner: Runner, user_id: str, session_id: str, new_message: Optional[Content] = None) -> str:
         final_response_text = ""
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message): # 这个是那个agent运行的？
             logger.debug(f"Event: {event.model_dump_json(indent=2, exclude_none=True)}")
             if event.is_final_response() and event.content and event.content.parts:
-                text_part = next((part.text for part in event.content.parts if part.text), None)
+                text_part = self._event_text(event)
                 if text_part:
                     final_response_text = text_part
                     logger.info(f"[{runner.agent.name}] 最终响应文本: '{final_response_text}'")
         return final_response_text
+
+    async def stream_agent_events(
+        self,
+        runner: Runner,
+        user_id: str,
+        session_id: str,
+        new_message: Optional[Content] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Run an ADK agent with native SSE streaming and yield app events.
+
+        This method is the transport-neutral boundary between ADK runtime
+        events and the web app protocol. HTTP routers should send the returned
+        dictionaries through their chosen transport instead of exposing raw ADK
+        Event objects to clients.
+        """
+        final_response_text = ""
+        partial_text_buffer = ""
+        tool_call_started = set()
+        tool_call_finished = set()
+        run_config = RunConfig(streaming_mode=StreamingMode.SSE)
+
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=new_message,
+            run_config=run_config,
+        ):
+            logger.debug(f"Event: {event.model_dump_json(indent=2, exclude_none=True)}")
+
+            for app_event in self._event_to_app_stream_events(
+                event=event,
+                root_agent_name=runner.agent.name,
+                partial_text_buffer=partial_text_buffer,
+                tool_call_started=tool_call_started,
+                tool_call_finished=tool_call_finished,
+            ):
+                if app_event.pop("_reset_partial_buffer", False):
+                    partial_text_buffer = ""
+                    continue
+                if app_event.get("type") == "assistant_delta":
+                    partial_text_buffer += str(app_event.get("content") or "")
+                yield app_event
+
+            if event.is_final_response() and event.content and event.content.parts:
+                text_part = self._event_text(event)
+                if text_part:
+                    final_response_text = text_part
+                    logger.info(f"[{runner.agent.name}] 最终响应文本: '{final_response_text}'")
+
+        self.latest_final_response_text = final_response_text
+
+    def _event_to_app_stream_events(
+        self,
+        event: Event,
+        root_agent_name: str,
+        partial_text_buffer: str,
+        tool_call_started: set[str],
+        tool_call_finished: set[str],
+    ) -> list[Dict[str, Any]]:
+        """Convert one ADK Event into stable app-level stream events."""
+        app_events: list[Dict[str, Any]] = []
+
+        if getattr(event, "error_code", None):
+            app_events.append(
+                {
+                    "type": "error",
+                    "content": getattr(event, "error_message", None)
+                    or f"Agent runtime error: {event.error_code}",
+                }
+            )
+            return app_events
+
+        for function_call in event.get_function_calls():
+            if event.partial:
+                continue
+            if function_call.name in tool_call_started:
+                continue
+            tool_call_started.add(function_call.name)
+            app_events.append(
+                {
+                    "type": "step",
+                    "content": self._tool_status_message(function_call.name, started=True),
+                }
+            )
+
+        for function_response in event.get_function_responses():
+            if event.partial:
+                continue
+            if function_response.name in tool_call_finished:
+                continue
+            tool_call_finished.add(function_response.name)
+            app_events.append(
+                {
+                    "type": "step",
+                    "content": self._tool_status_message(function_response.name, started=False),
+                }
+            )
+
+        text = self._event_text(event)
+        if not text or event.author != root_agent_name:
+            return app_events
+
+        has_function_call = bool(event.get_function_calls())
+        has_function_response = bool(event.get_function_responses())
+        if has_function_call or has_function_response:
+            return app_events
+
+        if event.partial:
+            app_events.append({"type": "assistant_delta", "content": text})
+            return app_events
+
+        if partial_text_buffer:
+            if text == partial_text_buffer or text.startswith(partial_text_buffer):
+                app_events.append({"_reset_partial_buffer": True})
+                return app_events
+            app_events.append({"_reset_partial_buffer": True})
+
+        app_events.append({"type": "assistant_message", "content": text})
+        return app_events
+
+    def _event_text(self, event: Event) -> str:
+        """Return concatenated text parts from an ADK Event."""
+        if not event.content or not event.content.parts:
+            return ""
+        return "".join(
+            part.text or ""
+            for part in event.content.parts
+            if part.text
+            and not getattr(part, "thought", False)
+            and not part.function_call
+            and not part.function_response
+        )
+
+    def _tool_status_message(self, tool_name: str, started: bool) -> str:
+        """Return a user-facing status line for a tool boundary event."""
+        if tool_name == "generate_math_video":
+            if started:
+                return "正在生成数学讲解视频..."
+            return "数学讲解视频生成完成，正在整理结果..."
+
+        if started:
+            return "正在调用工具处理任务..."
+        return "工具执行完成，正在整理结果..."
     
     async def add_event(self, text:str='', state_delta:Dict=None):
         if state_delta is None:

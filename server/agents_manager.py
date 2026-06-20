@@ -41,10 +41,10 @@ extractor_agent = ExtractorAgent(name="ExtractorAgent", description=expert_name_
 read_artifact_agent = ReadArtifactAgent(name="ReadArtifactAgent", description=expert_name_2_desc['ReadArtifactAgent'], llm_model = SYS_CONFIG.llm_model)
 search_query_agent = SearchQueryAgent(name="SearchQueryAgent", description=expert_name_2_desc['SearchQueryAgent'], llm_model=SYS_CONFIG.llm_model)
 search_agent = SearchAgent(name='SearchAgent', max_search_count=SYS_CONFIG.max_search_count, description=expert_name_2_desc['SearchAgent'])
-html_generation_agent = HTMLGenerationAgent(name='HTMLGenerationAgent', description=expert_name_2_desc['HTMLGenerationAgent'], llm_model=SYS_CONFIG.html_gen_llm_model) # name 需要和 agent.json中的一致
+html_generation_agent = HTMLGenerationAgent(name='HTMLGenerationAgent', description=expert_name_2_desc['HTMLGenerationAgent'], llm_model=SYS_CONFIG.llm_model) # name 需要和 agent.json中的一致
 html_to_image = HTMLToImageAgent(name='HTMLToImageAgent', description=expert_name_2_desc['HTMLToImageAgent'])
-science_agent = ScienceAgent(name='ScienceAgent', description=expert_name_2_desc['ScienceAgent'], llm_model=SYS_CONFIG.science_llm_model)
-article_generation_agent = ArticleGenerationAgent(name='ArticleGenerationAgent', description=expert_name_2_desc['ArticleGenerationAgent'],llm_model = SYS_CONFIG.article_llm_model)
+science_agent = ScienceAgent(name='ScienceAgent', description=expert_name_2_desc['ScienceAgent'], llm_model=SYS_CONFIG.llm_model)
+article_generation_agent = ArticleGenerationAgent(name='ArticleGenerationAgent', description=expert_name_2_desc['ArticleGenerationAgent'],llm_model = SYS_CONFIG.llm_model)
 
 
 

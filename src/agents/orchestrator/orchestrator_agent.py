@@ -19,7 +19,7 @@ from google.genai.types import Content, Part
 # litellm._turn_on_debug()
 
 from src.logger import logger
-from src.llm.model_factory import build_model_kwargs
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from conf.system import SYS_CONFIG
 from conf.agent import experts_list
 from src.utils import clean_json_string
@@ -186,7 +186,7 @@ async def orchestrator_before_model_callback(callback_context: CallbackContext, 
     return None
 
 
-class OrchestratorAgent(BaseAgent):
+class LegacyPlanOrchestratorAgent(BaseAgent):
     """
     包含三个子Agent的规划模块，能够使用roleplay的方式生成plan
     planner：生成plan
@@ -207,14 +207,30 @@ class OrchestratorAgent(BaseAgent):
         max_iterations: int = 3,
     ):
         if not llm_model_plan:
-            llm_model_plan = SYS_CONFIG.orchestrator_llm_model
+            llm_model_plan = SYS_CONFIG.llm_model
         if not llm_model_critic:
-            llm_model_critic = SYS_CONFIG.critic_llm_model
-        logger.info(f"OrchestratorAgent plan: using llm: {llm_model_plan}")
-        logger.info(f"OrchestratorAgent critic: using llm: {llm_model_critic}")
+            llm_model_critic = SYS_CONFIG.llm_model
+        resolved_plan_model, _ = resolve_agent_llm_settings(
+            llm_model_plan,
+            agent_name="PlannerAgent",
+        )
+        resolved_critic_model, _ = resolve_agent_llm_settings(
+            llm_model_critic,
+            agent_name="CriticAgent",
+        )
+        logger.info(f"LegacyPlanOrchestratorAgent plan: using llm: {resolved_plan_model}")
+        logger.info(f"LegacyPlanOrchestratorAgent critic: using llm: {resolved_critic_model}")
 
-        planner_model_kwargs = build_model_kwargs(llm_model_plan, response_json=True)
-        critic_model_kwargs = build_model_kwargs(llm_model_critic, response_json=True)
+        planner_model_kwargs = build_model_kwargs(
+            llm_model_plan,
+            response_json=True,
+            agent_name="PlannerAgent",
+        )
+        critic_model_kwargs = build_model_kwargs(
+            llm_model_critic,
+            response_json=True,
+            agent_name="CriticAgent",
+        )
 
         planner = LlmAgent(
             name="PlannerAgent",
@@ -249,7 +265,7 @@ class OrchestratorAgent(BaseAgent):
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
-        """运行OrchestratorAgent
+        """运行LegacyPlanOrchestratorAgent
         如果self.max_iterations<=0, 不使用roleplay，只使用planner单次生成plan
         如果self.max_iterations>0，会使用roleplay循环生成plan，最高循环次数为max_iterations
 
@@ -285,8 +301,8 @@ class Orchestrator:
         internal: bool = True,
     ):
         """ 
-        调用 OrchestratorAgent生成规划，为了防止上下文过于冗长，可以通过internal=True来使用内部session保存roleplay上下文
-        max_iter：控制OrchestratorAgent是否使用roleplay，以及roleplay循环轮数
+        调用 LegacyPlanOrchestratorAgent 生成规划，为了防止上下文过于冗长，可以通过internal=True来使用内部session保存roleplay上下文
+        max_iter：控制 LegacyPlanOrchestratorAgent 是否使用roleplay，以及roleplay循环轮数
         """
         self.app_name = app_name
         self.max_iter = max_iter
@@ -299,14 +315,22 @@ class Orchestrator:
         self.username:str = None
 
         if not llm_model_plan:
-            llm_model_plan = SYS_CONFIG.orchestrator_llm_model
+            llm_model_plan = SYS_CONFIG.llm_model
         if not llm_model_critic:
-            llm_model_critic = SYS_CONFIG.critic_llm_model
-        logger.info(f"OrchestratorAgent plan: using llm: {llm_model_plan}")
-        logger.info(f"OrchestratorAgent critic: using llm: {llm_model_critic}")
+            llm_model_critic = SYS_CONFIG.llm_model
+        resolved_plan_model, _ = resolve_agent_llm_settings(
+            llm_model_plan,
+            agent_name="PlannerAgent",
+        )
+        resolved_critic_model, _ = resolve_agent_llm_settings(
+            llm_model_critic,
+            agent_name="CriticAgent",
+        )
+        logger.info(f"LegacyPlanOrchestratorAgent plan: using llm: {resolved_plan_model}")
+        logger.info(f"LegacyPlanOrchestratorAgent critic: using llm: {resolved_critic_model}")
 
-        self.orchestrator_agent = OrchestratorAgent(
-            name='OrchestratorAgent',
+        self.orchestrator_agent = LegacyPlanOrchestratorAgent(
+            name='LegacyPlanOrchestratorAgent',
             description="""Generate global and step-by-step plan for user's request""",
             llm_model_plan=llm_model_plan,
             llm_model_critic=llm_model_critic,
@@ -322,7 +346,7 @@ class Orchestrator:
         
     async def run_agent_and_log_events(self, user_id: str, session_id: str, new_message: Optional[Content] = None) -> str:
         """
-        在主session上 call the runner to run OrchestratorAgent
+        在主session上 call the runner to run LegacyPlanOrchestratorAgent
         """
         final_response_text_list = []
         async for event in self.runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message):

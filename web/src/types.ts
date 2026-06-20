@@ -14,6 +14,16 @@ export type ErrorEvent = {
   content: string;
 };
 
+export type AssistantDeltaEvent = {
+  type: "assistant_delta";
+  content: string;
+};
+
+export type AssistantMessageEvent = {
+  type: "assistant_message";
+  content: string;
+};
+
 export type FinalContent = {
   text?: string | null;
   final_output_text?: string | null;
@@ -26,12 +36,16 @@ export type FinalEvent = {
   content: FinalContent;
 };
 
-export type AgentEvent = StepEvent | ErrorEvent | FinalEvent;
+export type AgentEvent =
+  | StepEvent
+  | ErrorEvent
+  | AssistantDeltaEvent
+  | AssistantMessageEvent
+  | FinalEvent;
 
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
-  variant?: "step" | "error" | "final";
+  variant?: "step" | "error" | "final" | "streaming";
 };
-
