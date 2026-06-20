@@ -40,7 +40,7 @@
     },
     {
       "name": "ScienceAgent",
-      "enable": true,
+      "enable": false,
       "description": "具备理科、工科、工程领域知识，擅长数学、物理、化学、生物、计算机等领域的问题，包括但不限于计算、算法、证明等。",
       "parameters": "`{'prompt': '原始设计任务', 'input_img_name': ['图片名称1', ...](可选输入), 'current_info': '当前已经搜索到的信息或者分析得到的有帮助的信息'}`"
     },

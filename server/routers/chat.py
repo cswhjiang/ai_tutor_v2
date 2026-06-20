@@ -2,16 +2,19 @@ from typing import List, Optional
 from pathlib import Path
 import time
 import uuid
-import json
 
 from fastapi import APIRouter, Form, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from google.adk.runners import Runner
+from google.genai.types import Content, Part
 
-from server.agents_manager import session_service, artifact_service, expert_runners, expert_agents
+from server.agents_manager import session_service, artifact_service, expert_runners
 from server.utils.common import set_initial_state
-from src.agents.orchestrator.orchestrator_agent import Orchestrator
-from src.agents.executor.executor_agent import Executor
+from src.agents.orchestrator.tool_calling_orchestrator_agent import (
+    create_tool_calling_orchestrator_agent,
+)
+from src.agents.executor.executor_agent import AgentInvocationService
 from conf.system import SYS_CONFIG
 from src.logger import logger
 from src.context import username_context
@@ -210,116 +213,62 @@ async def chat_with_agent(
             yield format_sse_event({"type": "error", "content": error_text})
             return
 
-        # 设置orchestrator和executor
-        # --- 创建总指挥Agent的Runner ---
-        orchestrator = Orchestrator(
-            session_service=session_service,
-            artifact_service=artifact_service,
-            app_name=SYS_CONFIG.app_name,
-            llm_model_plan=SYS_CONFIG.orchestrator_llm_model,
-            llm_model_critic=SYS_CONFIG.critic_llm_model,
-            max_iter=SYS_CONFIG.plan_critic_iter_num,  # 小于1不使用 critic 来优化plan， 大于0的情况下使用。
-            internal=True # 启用创建内部新session
-        )
-
-        # --- 创建执行agent的Runner ---
-        executor = Executor(
+        # --- 创建执行agent的Runtime ---
+        executor = AgentInvocationService(
             session_service=session_service,
             artifact_service=artifact_service,
             app_name=SYS_CONFIG.app_name,
             expert_runners=expert_runners,
         )
 
-        orchestrator.uid = uid
-        orchestrator.sid = sid
-        orchestrator.username = username
         executor.uid = uid
         executor.sid = sid
         executor.username = username
         executor.save_dir = images_dir
 
+        # --- 创建总指挥Agent的Runner：直接通过function call调用工具，不再生成plan ---
+        orchestrator_agent = create_tool_calling_orchestrator_agent(
+            llm_model=SYS_CONFIG.orchestrator_llm_model,
+        )
+        orchestrator_runner = Runner(
+            agent=orchestrator_agent,
+            app_name=SYS_CONFIG.app_name,
+            session_service=session_service,
+            artifact_service=artifact_service,
+        )
 
-        # 可以选择先生成整体所有步骤，作为后续规划和执行的参考
-        global_plan, global_summary = await orchestrator.generate_plan(global_plan=True)  # 先生成全局规划
-        # logger.info(f"全局所有步骤规划：\n {global_summary}")
-        logger.info(f"Global step planning:\n {global_summary}")
-        if username in debug_username_set: # 输出到页面上
-            yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Orchestrator global plan: {global_plan}"})
-            yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Orchestrator: {global_summary}"})
+        if username in debug_username_set:
+            yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Orchestrator is handling the request..."})
         else:
-            yield format_sse_event({"type": "step", "content": f"Orchestrator: {global_summary}"})
+            yield format_sse_event({"type": "step", "content": "Orchestrator is handling the request..."})
 
+        final_summary = await executor.run_agent_and_log_events(
+            orchestrator_runner,
+            user_id=uid,
+            session_id=sid,
+            new_message=Content(
+                role='user',
+                parts=[Part(text=f"请处理用户最新任务：{message}")]
+            ),
+        )
+        if not final_summary:
+            final_summary = "The task process has finished."
 
-        # --- 任务循环开始 ---
-        # final_summary = "任务流程已启动。"
-        final_summary = "The task process has been initiated."
-        max_loops = SYS_CONFIG.max_iterations_orchestrator
-        for i in range(max_loops):
-            logger.info(f"--- Workflow loop: Round {i + 1}/{max_loops} (Session: {sid}) ---")
-
-            current_session = await database_op_with_retry(
-                session_service.get_session,
-                app_name=SYS_CONFIG.app_name,
-                user_id=uid,
-                session_id=sid,
+        post_orchestrator_session = await database_op_with_retry(
+            session_service.get_session,
+            app_name=SYS_CONFIG.app_name,
+            user_id=uid,
+            session_id=sid,
+        )
+        if post_orchestrator_session.state.get("latest_tool_output_ready"):
+            current_output = await executor.persist_current_output(
+                summary=post_orchestrator_session.state.get("latest_tool_summary", "")
             )
-            logger.debug(f"State snapshot (Orchestrator input): {json.dumps(current_session.state, indent=2, ensure_ascii=False)}") # TODO: 确认parameter如何从上一步中填充的
-
-            # 生成单步规划
-            # yield format_sse_event({"type": "step", "content": f"Orchestrator is thinking..."}) ## 有时候会在plan出现之前出现
-            plan, current_summary = await orchestrator.generate_plan(global_plan=False) # TODO: 这一遍原先是计划放在 executor 里面的。需要确认是否可以看到global-plan
-
-            next_agent_name = plan.get("next_agent")
-            params_for_expert = plan.get("parameters", {})
-            final_summary = current_summary
-
-            if username in debug_username_set:
-                yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Orchestrator next action: {plan}"})
-
-            if not next_agent_name or next_agent_name == "FINISH":
-                logger.info(f"Orchestrator: Task finished. Summerization: {final_summary}")
-                break
-
-            if next_agent_name not in expert_agents:
-                logger.error(f"Orchestrator selected unknown agent: '{next_agent_name}'. End loop.")
-                final_summary = f"Orchestrator selected unknown agent '{next_agent_name}', task ends."
-                break
-
-            if i == 0:
-                if username in debug_username_set:
-                    yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Plan has been formulated, and expert agents are executing..."})
-                else:
-                    yield format_sse_event({"type": "step", "content": "Plan has been formulated, and expert agents are executing..."})
-
-            # yield format_sse_event({"type": "step", "content": f"userid: {uid}, username: {username}, sid: {sid}"})
-            if username in debug_username_set:
-                yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Delegating task to expert: {next_agent_name}. \n Parameter: {params_for_expert}\n"})
-
-            # 执行当前步骤
-            current_output = await executor.execute_plan()
-
-            # logger.info(current_output)
-
-            if username in debug_username_set:
-                text = current_output['message']
-                if 'output_text' in current_output:
-                    text += f"\n{current_output['output_text']}"
-                # 执行结果为： message + output_text
-                yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Execution result: agent {i} {text}"})
-            else:
-                if 'message_for_user' in current_output:
-                    message_for_user = current_output['message_for_user']
-                else:
-                    message_for_user = current_output['message']
-                if username in debug_username_set:
-                    yield format_sse_event({"type": "step", "content": f"{current_time_str()}  Execution result: agent {i} {message_for_user}"})
-                else:
-                    yield format_sse_event({"type": "step", "content": f"--> Execution result: agent {i} {message_for_user}"})
-        else:
-            logger.warning(f"Workflow reached the maximum number of loops {max_loops}, forcing termination.")
-            final_summary = f"The task reached the maximum step limit ({max_loops}) and has been automatically terminated."
-            # logger.warning(f"工作流达到最大循环次数 {max_loops}，强制终止。")
-            # final_summary = f"任务达到最大步骤限制 ({max_loops})，已自动终止。"
+            final_summary = (
+                current_output.get("message_for_user")
+                or current_output.get("message")
+                or final_summary
+            )
 
         final_session = await database_op_with_retry(
                 session_service.get_session,
@@ -329,20 +278,22 @@ async def chat_with_agent(
             )
 
         # 需要返回的最终结果
-        artifacts_history = final_session.state.get('artifacts_history')
+        artifacts_history = final_session.state.get('artifacts_history', []) or []
         final_steps = len(artifacts_history)
+        new_artifacts = final_session.state.get('new_artifacts', []) or []
+        candidate_artifacts = new_artifacts
+        if not candidate_artifacts and artifacts_history:
+            candidate_artifacts = artifacts_history[-1]
+
         final_art = []
-        for i in range(final_steps):
-            if len(artifacts_history[final_steps-1-i]) > 0:
-                for art in artifacts_history[final_steps-1-i]:
-                    ext_name = _ext(art['name'])
-                    # 过滤掉文件比如pptx等无需base64编码的
-                    if 'search' not in art['name'] and ext_name not in ALLOWED_DOC_EXT:
-                        final_art.append(art)
-                # break
+        for art in candidate_artifacts:
+            ext_name = _ext(art['name'])
+            # 过滤掉文件比如pptx等无需base64编码的
+            if 'search' not in art['name'] and ext_name not in ALLOWED_DOC_EXT and art.get('path'):
+                final_art.append(art)
+
         final_filenames = []
         # 使用最新一步的new_artifacts获取是否生成了新的文件
-        new_artifacts = final_session.state.get('new_artifacts', [])
         for art in new_artifacts:
             ext_name = _ext(art['name'])
             logger.info(f"final new artifact: {art['name']}, ext: {ext_name}")

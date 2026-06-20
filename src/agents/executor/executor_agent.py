@@ -13,7 +13,7 @@ from conf.system import SYS_CONFIG
 from src.utils import database_op_with_retry
 
 
-class Executor:
+class AgentInvocationService:
     def __init__(
         self,
         session_service: InMemorySessionService,
@@ -100,22 +100,27 @@ class Executor:
 
         # 检查调用的agent名称是否在提供的expert_runners中
         if agent_name not in self.expert_runners:
-            error_text = f"Executor决策了未知的Agent: '{agent_name}'，它不在提供的agent列表中"
+            error_text = f"请求调用了未知的Agent: '{agent_name}'，它不在提供的agent列表中"
             return error_text
 
         # 检查调用的artifact名称是否存在于artifact service中
-        if 'input_name' in params_for_expert:
+        artifact_parameter_names = ["input_name", "input_img_name"]
+        for artifact_parameter_name in artifact_parameter_names:
+            if artifact_parameter_name not in params_for_expert:
+                continue
+
             art_list = await self.artifact_service.list_artifact_keys(
                 app_name=self.app_name, user_id=self.uid, session_id=self.sid
             )
 
+            parameter_value = params_for_expert[artifact_parameter_name]
             input_names = []
-            if isinstance(params_for_expert['input_name'], str):
-                input_names = [params_for_expert['input_name']]
-            elif isinstance(params_for_expert['input_name'], list):
-                input_names = params_for_expert['input_name']
+            if isinstance(parameter_value, str):
+                input_names = [parameter_value]
+            elif isinstance(parameter_value, list):
+                input_names = parameter_value
             else:
-                error_text += f"当前的规划中的parameters['input_name']格式错误，需要为string或list"
+                error_text += f"当前的parameters['{artifact_parameter_name}']格式错误，需要为string或list"
                 return error_text
 
             for name in input_names:
@@ -127,32 +132,25 @@ class Executor:
 
         if len(error_arifact_names) > 0:
             all_artifact_names = ', '.join(error_arifact_names)
-            error_text += f"Executor选择了未知的 artifact: {all_artifact_names}，它们不在artifacts列表中"
+            error_text += f"请求选择了未知的 artifact: {all_artifact_names}，它们不在artifacts列表中"
 
         return error_text
 
-    async def execute_plan(self):
+    async def execute_agent(
+        self,
+        agent_name: str,
+        parameters: Dict[str, Any],
+        summary: str = "",
+    ) -> Dict[str, Any]:
+        """Run one expert agent directly and persist its output into session state.
+
+        This is the reusable runtime path for both the legacy plan-based executor
+        and the new tool-calling orchestrator. It writes `current_parameters`,
+        invokes the target agent runner, saves generated artifacts to disk, and
+        appends execution history back to the shared session.
         """
-        执行plan函数，直接从主session的state中的 `current_plan` 字段读取当前规划的参数并执行
-        """
-        # load state['current_plan']
-        current_session = await database_op_with_retry(
-                self.session_service.get_session,
-                app_name=SYS_CONFIG.app_name,
-                user_id=self.uid,
-                session_id=self.sid,
-            )
-
-        # TODO: 有潜在问题，使用完之后没有清空。如果当前 next_agent 决策没有填充这个字段的话，会继续执行上一个步骤。
-        # 增加这个todo，在最后面执行完之后清空 current_plan，使用state_delta进行覆盖
-        plan = current_session.state.get('current_plan') 
-
-        next_agent_name = plan.get("next_agent")
-        params_for_expert = plan.get("parameters", {})
-        final_summary = plan.get("summary", {})
-
         # 检查参数有效性
-        error_text = await self.check_paramters_valid(next_agent_name, params_for_expert)
+        error_text = await self.check_paramters_valid(agent_name, parameters)
         # 如果参数有问题，那么error_text会有值
         if error_text:
             logger.error(error_text)
@@ -165,20 +163,28 @@ class Executor:
                 "author": "Executor",
                 "status": "error",
                 "message": error_text,
+                "message_for_user": error_text,
                 "output_artifacts": [],
                 "output_text": ""
             }
         else:
             # 参数没有问题，运行expert agent
             # 将当前的参数写入state
-            await self.add_event(state_delta={'current_parameters': params_for_expert})
+            await self.add_event(state_delta={'current_parameters': parameters})
             # 运行expert，运行的结果位于state['current_output']
-            expert_runner = self.expert_runners[next_agent_name]
-            new_message = Content(role='user', parts=[Part(text="根据原始任务和当前的plan以及对应的输入参数，调用对应的agent来执行")]) # TODO: 没有author，确认
+            expert_runner = self.expert_runners[agent_name]
+            new_message = Content(role='user', parts=[Part(text="根据原始任务和当前输入参数，调用对应的agent来执行")]) # TODO: 没有author，确认
             await self.run_agent_and_log_events(expert_runner, user_id=self.uid, session_id=self.sid, new_message=new_message) # 调用这个runner下的agent。TODO: 这个message 在 llm_request 里面没有author
             current_output = {} # 先置空，下面会从state中读取
 
-        # 完成运行后，把信息写入state
+        return await self.persist_current_output(summary=summary, current_output=current_output)
+
+    async def persist_current_output(
+        self,
+        summary: str = "",
+        current_output: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist the current expert output into local files and session history."""
         # 专家agent的输出：state['current_output']
         # 所有专家agent的输出结构：
         # {
@@ -201,11 +207,11 @@ class Executor:
         if not current_output:
             current_output = current_session.state.get('current_output')
         
-        current_step = current_session.state.get('step')
-        artifacts_history = current_session.state.get('artifacts_history')
-        text_history = current_session.state.get('text_history')
-        message_history = current_session.state.get('message_history')
-        summary_history = current_session.state.get('summary_history')
+        current_step = current_session.state.get('step', 0) or 0
+        artifacts_history = current_session.state.get('artifacts_history', []) or []
+        text_history = current_session.state.get('text_history', []) or []
+        message_history = current_session.state.get('message_history', []) or []
+        summary_history = current_session.state.get('summary_history', []) or []
 
         # 对于pending状态，是否需要特殊处理？
         if not current_output:
@@ -214,6 +220,8 @@ class Executor:
         state_delta = {
             'step': current_step + 1,
             'current_plan': {},  # 清空当前的plan，防止重复执行
+            'latest_tool_output_ready': False,
+            'latest_tool_summary': '',
         }
 
         # 把新生成的artifact保存到本地
@@ -244,20 +252,46 @@ class Executor:
                 state_delta['text_history'] = text_history + [None]
 
             # 保存summary_history
-            state_delta['summary_history'] = summary_history + [final_summary]
+            state_delta['summary_history'] = summary_history + [summary]
 
             # 保存message_history
             state_delta['message_history'] = message_history + [current_output['message']]
 
-            await self.add_event(text=f"第{current_step+1}轮执行已完成。这一步的原始目标：`{final_summary}`，执行完成后的总结：`{current_output['message']}`", state_delta=state_delta)
+            await self.add_event(text=f"第{current_step+1}轮执行已完成。这一步的原始目标：`{summary}`，执行完成后的总结：`{current_output['message']}`", state_delta=state_delta)
 
         elif current_output['status'] == 'error':
             state_delta['new_artifacts'] = []
             state_delta['artifacts_history'] = artifacts_history + [[]]
             state_delta['text_history'] = text_history + [None]
             state_delta['message_history'] = message_history + [current_output['message']]
-            state_delta['summary_history'] = summary_history + [final_summary]
+            state_delta['summary_history'] = summary_history + [summary]
 
-            await self.add_event(text=f"第{current_step+1}轮专家执行出错。这一步的原始目标：`{final_summary}`, 执行错误描述：`{current_output['message']}`。当前步骤目标可能未完成，需要视情况重新执行或使用新的参数或方法。", state_delta=state_delta)
+            await self.add_event(text=f"第{current_step+1}轮专家执行出错。这一步的原始目标：`{summary}`, 执行错误描述：`{current_output['message']}`。当前步骤目标可能未完成，需要视情况重新执行或使用新的参数或方法。", state_delta=state_delta)
 
         return current_output
+
+    async def execute_plan(self):
+        """
+        执行plan函数，直接从主session的state中的 `current_plan` 字段读取当前规划的参数并执行
+        """
+        # load state['current_plan']
+        current_session = await database_op_with_retry(
+                self.session_service.get_session,
+                app_name=SYS_CONFIG.app_name,
+                user_id=self.uid,
+                session_id=self.sid,
+            )
+
+        # TODO: 有潜在问题，使用完之后没有清空。如果当前 next_agent 决策没有填充这个字段的话，会继续执行上一个步骤。
+        # 增加这个todo，在最后面执行完之后清空 current_plan，使用state_delta进行覆盖
+        plan = current_session.state.get('current_plan') or {}
+
+        return await self.execute_agent(
+            agent_name=plan.get("next_agent"),
+            parameters=plan.get("parameters", {}),
+            summary=plan.get("summary", {}),
+        )
+
+
+# Backward-compatible alias for the legacy plan-based route.
+Executor = AgentInvocationService

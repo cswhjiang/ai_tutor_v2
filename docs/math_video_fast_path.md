@@ -64,11 +64,11 @@
 
 在原链路中，最大耗时来自完整 Manim 代码生成。新链路删掉这一步后，典型路径变成：
 
-1. 入口编排和计划生成。
+1. tool-calling Orchestrator 入口调用。
 2. 一次脚本 LLM 调用。
 3. 本地模板低分辨率渲染。
 
-按已有日志中的 9 分钟样本估算，如果入口编排耗时不变，端到端目标可以从分钟级降到几十秒级。实际能否稳定达到 10 倍，取决于上游 `Orchestrator` 的计划耗时、LLM API 延迟、TTS 是否命中缓存、机器渲染性能。
+按已有日志中的 9 分钟样本估算，去掉 global plan 和 single plan 循环后，端到端目标可以从分钟级继续下降。实际能否稳定达到 10 倍，取决于 tool-calling `Orchestrator` 延迟、LLM API 延迟、TTS 是否命中缓存、机器渲染性能。
 
 ## 验证
 
@@ -85,5 +85,5 @@ python -m py_compile src/llm/model_factory.py src/agents/experts/math_video/fast
 
 后续如果要继续提速，可以再做两件事：
 
-1. 在路由层对明确的视频任务跳过通用 `Orchestrator` 的全局计划和单步计划。
+1. 对明确的数学视频任务增加规则路由，必要时连 tool-calling `Orchestrator` 的一次 LLM 调用也跳过。
 2. 优化 `ByteDanceService`，避免 WAV 转 MP3 的中间步骤，进一步减少语音生成耗时。
