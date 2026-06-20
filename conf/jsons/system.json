@@ -1,5 +1,4 @@
 {
-  "executor_replan_enabled": false,
   "llm_model": "gemini/gemini-3-flash-preview",
   "openai_reasoning_effort": "high", //low / medium / high
   "gemini_thinking_level": "high", // LOW / MEDIUM / HIGH / MINIMAL
@@ -7,7 +6,6 @@
   "orchestrator_llm_model": "gemini/gemini-3-flash-preview",
   "critic_llm_model": "gemini/gemini-3-flash-preview",
   "plan_critic_iter_num": 0,
-  "executor_llm_model": "gemini/gemini-3-flash-preview",
   "html_gen_llm_model": "gemini/gemini-3.1-pro-preview",
   "code_gen_llm_model":  "openai/gpt-5.4",
 //  "code_gen_llm_model":  "anthropic/claude-opus-4-6",

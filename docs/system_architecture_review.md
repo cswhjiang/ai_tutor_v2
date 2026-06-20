@@ -399,15 +399,15 @@ outputs/images
 - 给 `current_output` 和 `output_artifacts` 建统一数据模型。
 - 为 `agent.json` 参数描述和实际 agent 输入做测试或校验。
 
-### 11.3 Orchestrator 与 Executor 职责有重叠历史
+### 11.3 Orchestrator 与 Executor 职责边界
 
-Executor 内仍保留 `executor_replan_enabled` 路径，可以自己生成 plan。但当前配置为 false，主流程由 Orchestrator 负责规划。
+当前职责已经收敛为：Orchestrator 负责生成 `current_plan`，Executor 只负责读取和执行 `current_plan`，不再自己生成 plan。
 
 需要确认：
 
-- 是否保留 Executor replan 作为 fallback。
-- 如果保留，需要保证它和 Orchestrator 使用同一套 agent 描述和参数协议。
-- 如果不保留，可以简化 Executor。
+- `current_plan` 为空或格式错误时，Executor 应该如何失败和恢复。
+- Executor 的参数校验是否需要升级为 schema 校验。
+- 是否需要补充单元测试覆盖 Executor 的纯执行路径。
 
 ### 11.4 数学视频的快速链路与 legacy 链路需要统一 import 假设
 

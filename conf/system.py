@@ -9,15 +9,12 @@ class SystemConfig(BaseModel):
     Configuration for the system.
     """
 
-    # plan_enabled: bool = True  # Flag to enable or disable planning features
-    executor_replan_enabled: bool = True  # Flag to enable or disable execution features
     llm_model: str
     orchestrator_llm_model: str
     critic_llm_model: str
     plan_critic_iter_num: int
     html_gen_llm_model: str
     code_gen_llm_model: str
-    executor_llm_model: str
     article_llm_model: str
     science_llm_model: str
     solution_llm_model: str

@@ -228,8 +228,6 @@ async def chat_with_agent(
             artifact_service=artifact_service,
             app_name=SYS_CONFIG.app_name,
             expert_runners=expert_runners,
-            llm_model=SYS_CONFIG.executor_llm_model,
-            executor_replan_enabled=SYS_CONFIG.executor_replan_enabled
         )
 
         orchestrator.uid = uid
