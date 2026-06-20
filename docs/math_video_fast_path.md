@@ -26,23 +26,23 @@
 
 核心变化：
 
-- 默认 `MathVideoGenerationAgent` 改为 `FastMathVideoGenerationAgent`。
+- `MathVideoGenerationAgent` 仍通过 `FastMathVideoGenerationAgent` 包装路由，但默认执行 legacy 四段式链路；fast 链路只在显式传入 `math_video_mode="fast"` 或 `use_fast=true` 时启用。
 - LLM 调用从“解题 + 分镜 + 代码生成”缩短为一次结构化脚本生成。
 - 快速脚本 Agent 显式使用低推理档；`model_factory` 会把 `reasoning_effort="low"` 映射到 Gemini 的 `LOW` thinking level，避免沿用全局 high thinking。
 - 渲染模板固定为 `854x480@15fps`，降低 Manim 渲染压力。
 - 不再执行 LLM 生成的任意 Manim 代码，减少失败重试和安全风险。
 - 语音为自动模式：有火山 TTS 环境变量和 `ffmpeg/ffprobe` 时并发合成并混音；否则生成无语音字幕式视频。
-- 旧四段式链路仍保留，可用 `math_video_mode="legacy"` 或 `use_legacy=True` 回退。
+- 旧四段式链路是默认链路，可用 `math_video_mode="legacy"` 或 `use_legacy=True` 明确指定。
 
 ## 使用方式
 
-默认不需要改调用方，继续使用 `MathVideoGenerationAgent` 即可走快速链路。
+默认不需要改调用方，继续使用 `MathVideoGenerationAgent` 即可走 legacy 四段式链路。
 
-如果需要回退旧链路，在当前步骤参数中传入：
+如果需要走快速链路，在当前步骤参数中传入：
 
 ```json
 {
-  "math_video_mode": "legacy"
+  "math_video_mode": "fast"
 }
 ```
 
@@ -50,7 +50,7 @@
 
 ```json
 {
-  "use_legacy": true
+  "use_fast": true
 }
 ```
 
@@ -78,6 +78,7 @@
 
 ```bash
 python -m pytest test_manim/test_fast_template_renderer.py
+python -m pytest test_manim/test_fast_math_video_agent.py test_manim/test_render_agent.py
 python -m pytest test_adk/test_model_factory.py
 python -m py_compile src/llm/model_factory.py src/agents/experts/math_video/fast_template_renderer.py src/agents/experts/math_video/fast_math_video_agent.py src/agents/experts/math_video/math_video_generation_agent.py
 ```

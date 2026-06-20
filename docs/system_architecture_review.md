@@ -218,9 +218,36 @@ expert agent 通过 ADK `EventActions(state_delta=...)` 写入 `state.current_ou
 
 数学视频是当前系统里最复杂的 expert 之一。
 
-### 7.1 默认快速链路
+### 7.1 默认 legacy 链路
 
-当前 `MathVideoGenerationAgent` 默认指向 `FastMathVideoGenerationAgent`。
+当前 `MathVideoGenerationAgent` 通过 `FastMathVideoGenerationAgent` 做路由包装，但默认执行 legacy 四段式链路。
+
+legacy 链路保留为 `legacy_math_video_generation_agent`，由 `SequentialAgent` 串联：
+
+1. `SolutionAgent`
+2. `ShotAgent`
+3. `CodeGenerationAgent`
+4. `RenderAgent`
+
+默认或显式指定以下参数时走 legacy：
+
+```json
+{
+  "math_video_mode": "legacy"
+}
+```
+
+或者：
+
+```json
+{
+  "use_legacy": true
+}
+```
+
+legacy 链路中，`CodeGenerationAgent` 的 prompt 会要求 LLM 生成完整 Manim 代码，再由 `RenderAgent` 在临时目录中执行 `manim -ql`。
+
+### 7.2 可选快速链路
 
 快速链路流程：
 
@@ -244,20 +271,11 @@ expert agent 通过 ADK `EventActions(state_delta=...)` 写入 `state.current_ou
 - 有 `VOLCENGINE_APPID`、`VOLCENGINE_ACCESS_TOKEN`、`ffmpeg`、`ffprobe` 时尝试 TTS。
 - 否则生成无语音字幕式视频。
 
-### 7.2 旧版 legacy 链路
-
-旧链路仍保留为 `legacy_math_video_generation_agent`，由 `SequentialAgent` 串联：
-
-1. `SolutionAgent`
-2. `ShotAgent`
-3. `CodeGenerationAgent`
-4. `RenderAgent`
-
-可以通过参数回退：
+可以通过参数显式启用 fast：
 
 ```json
 {
-  "math_video_mode": "legacy"
+  "math_video_mode": "fast"
 }
 ```
 
@@ -265,11 +283,9 @@ expert agent 通过 ADK `EventActions(state_delta=...)` 写入 `state.current_ou
 
 ```json
 {
-  "use_legacy": true
+  "use_fast": true
 }
 ```
-
-legacy 链路中，`CodeGenerationAgent` 的 prompt 会要求 LLM 生成完整 Manim 代码，再由 `RenderAgent` 在临时目录中执行 `manim -ql`。
 
 ### 7.3 ByteDanceService 的架构位置
 
@@ -281,12 +297,9 @@ src/local_manim_voiceover_services/bytedance.py
 
 它继承第三方包 `manim_voiceover.services.base.SpeechService`，实现火山引擎 TTS。
 
-当前存在一个架构不一致点：
+当前 fast 和 legacy 都统一使用项目内路径：`src.local_manim_voiceover_services.bytedance`。
 
-- 快速链路直接 import 项目内路径：`src.local_manim_voiceover_services.bytedance`。
-- legacy 代码生成 prompt 仍要求生成代码 import：`manim_voiceover.services.bytedance`。
-
-这说明 legacy prompt 仍保留了“把自定义服务复制到 `.venv`”的旧假设。后续如果明确不再复制到 `.venv`，需要把 prompt 和渲染子进程的 `PYTHONPATH` 设计统一到项目内 import。
+legacy 渲染在临时目录中执行 `manim`，因此 `RenderAgent` 会给子进程补充项目根目录到 `PYTHONPATH`，并在渲染前把旧的 `manim_voiceover.services.bytedance` import 防御性改写为项目内 import。
 
 ## 8. 模型与配置层
 
@@ -409,15 +422,11 @@ outputs/images
 - Executor 的参数校验是否需要升级为 schema 校验。
 - 是否需要补充单元测试覆盖 Executor 的纯执行路径。
 
-### 11.4 数学视频的快速链路与 legacy 链路需要统一 import 假设
+### 11.4 数学视频的快速链路与 legacy 链路已统一 import 假设
 
-当前快速链路使用项目内 `ByteDanceService`，legacy prompt 仍指向 `manim_voiceover.services.bytedance`。
+当前 fast 和 legacy 都使用项目内 `ByteDanceService`，不再依赖复制文件到 `.venv`。
 
-后续明确不复制到 `.venv` 后，需要统一：
-
-- prompt 中的 import 路径。
-- `RenderAgent` 临时代码运行时的 `PYTHONPATH`。
-- TTS cache 目录和并发策略。
+仍需后续 review 的是 TTS cache 目录和并发策略。
 
 ### 11.5 快速数学视频旁白失败会静音 fallback
 

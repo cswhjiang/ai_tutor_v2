@@ -10,6 +10,7 @@ import subprocess
 
 import shutil
 from pathlib import Path
+from collections.abc import Mapping
 
 from playwright.async_api import async_playwright
 from typing import AsyncGenerator, List, Dict
@@ -25,6 +26,29 @@ from google.genai.types import Part, Blob
 from src.logger import logger
 from src.utils import clean_json_string
 
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+LEGACY_BYTEDANCE_IMPORT = "from manim_voiceover.services.bytedance import ByteDanceService"
+LOCAL_BYTEDANCE_IMPORT = (
+    "from src.local_manim_voiceover_services.bytedance import ByteDanceService"
+)
+
+
+def normalize_manim_voiceover_imports(manim_code: str) -> str:
+    """Rewrite legacy generated imports to use the project-local voiceover service."""
+    return manim_code.replace(LEGACY_BYTEDANCE_IMPORT, LOCAL_BYTEDANCE_IMPORT)
+
+
+def build_manim_subprocess_env(base_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Build the environment used by Manim so temporary render scripts can import src."""
+    env = dict(os.environ if base_env is None else base_env)
+    project_root = str(PROJECT_ROOT)
+    pythonpath = env.get("PYTHONPATH", "")
+    paths = [path for path in pythonpath.split(os.pathsep) if path and path != project_root]
+    env["PYTHONPATH"] = os.pathsep.join([project_root, *paths])
+    return env
+
+
 async def run_render_video(workdir, code_path, scene_name):
     # env_result_1 = subprocess.run(["npm", "init", "-y"],  capture_output=True,cwd=workdir, text=True)
     # env_result_2 = subprocess.run(["npm", "install", "pptxgenjs", "playwright", "sharp"], capture_output=True, cwd=workdir, text=True)
@@ -34,7 +58,8 @@ async def run_render_video(workdir, code_path, scene_name):
         ["manim", "-ql", code_path, scene_name],
         capture_output=True,
         cwd=workdir,
-        text=True
+        text=True,
+        env=build_manim_subprocess_env(),
     )
 
     return {
@@ -52,6 +77,7 @@ async def manim_to_video(manim_code: str, scene_name:str):
     logger.info('~~~~~~')
     logger.info(td)
 
+    manim_code = normalize_manim_voiceover_imports(manim_code)
     manim_code_save_path = os.path.join(td,  'manim.py')
     with open(manim_code_save_path, "w", encoding="utf-8") as fh:
         fh.write(manim_code)
@@ -191,7 +217,6 @@ class RenderAgent(BaseAgent):
             }
             yield self.format_event(text, {'current_output': current_output})
             return
-
 
 
 

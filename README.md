@@ -44,6 +44,41 @@ python -m pip check
 python apps/art_cli.py --message {your_message}
 ```
 
+* 运行web前端
+
+先启动后端：
+
+```bash
+source .venv/bin/activate
+bash server/start_service_dev.sh
+```
+
+再开第二个终端启动前端：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+访问：
+
+```text
+http://localhost:5173
+```
+
+如果后端不是本机 `9501` 端口，可以在启动前端前指定：
+
+```bash
+VITE_API_BASE_URL=http://localhost:9501 npm run dev
+```
+
+前端配置示例见：
+
+```text
+web/.env.example
+```
+
 * 用样例题运行一次系统
 
 先启动后端，保持这个终端不要关闭：

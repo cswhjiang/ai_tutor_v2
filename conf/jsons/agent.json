@@ -48,7 +48,7 @@
       "name": "MathVideoGenerationAgent",
       "enable": true,
       "description": "数学科普视频生成。输入为问题，可以自行分析答案，设计分镜、写相关视频代码，并最终生成视频的智能体。MathVideoGenerationAgent 中包含了SolutionAgent、ShotAgent、CodeGenerationAgent、RenderAgent4个agent，具备自行解题、设计讲解旁白/分镜、生成 Manim 代码并渲染输出一个mp4文件全部流程的能力。 ",
-      "parameters": "`{'prompt': '原始设计任务', 'input_img_name': ['图片名称1', ...](可选输入), 'current_info': '当前已经搜索到的信息或者分析得到的有帮助的信息'}`"
+      "parameters": "`{'prompt': '原始设计任务', 'input_img_name': ['图片名称1', ...](可选输入), 'current_info': '当前已经搜索到的信息或者分析得到的有帮助的信息', 'math_video_mode': 'legacy'(默认，高质量四段式链路) | 'fast'(显式快速链路，可选)}`"
     },
     {
       "name": "HTMLGenerationAgent",

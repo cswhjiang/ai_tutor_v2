@@ -15,6 +15,27 @@ from src.logger import logger
 from src.utils import clean_json_string
 
 
+def _truthy(value: object) -> bool:
+    """Return whether a JSON-like routing flag should be treated as enabled."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
+def should_use_fast_math_video(current_parameters: dict) -> bool:
+    """Return True only when the caller explicitly requests the fast video path."""
+    if _truthy(current_parameters.get("use_legacy", False)):
+        return False
+
+    mode = str(current_parameters.get("math_video_mode", "")).strip().lower()
+    if mode == "fast":
+        return True
+
+    return _truthy(current_parameters.get("use_fast", False))
+
+
 async def fast_math_video_before_model_callback(
     callback_context: CallbackContext,
     llm_request: LlmRequest,
@@ -94,7 +115,7 @@ class FastMathVideoGenerationAgent(BaseAgent):
         return event
 
     async def _run_legacy(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        """Run the previous multi-agent Manim-code pipeline when requested."""
+        """Run the multi-agent Manim-code pipeline."""
         if self.legacy_agent is None:
             current_output = {
                 "author": self.name,
@@ -112,7 +133,7 @@ class FastMathVideoGenerationAgent(BaseAgent):
             yield event
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        """Run the fast structured-script video generation pipeline."""
+        """Run legacy by default, with the fast path available by explicit request."""
         current_parameters = ctx.session.state.get("current_parameters", {})
         if "prompt" not in current_parameters:
             error_text = f"提供给{self.name}的参数缺失，必须包含：prompt"
@@ -127,8 +148,7 @@ class FastMathVideoGenerationAgent(BaseAgent):
             yield self.format_event(error_text, {"current_output": current_output})
             return
 
-        mode = str(current_parameters.get("math_video_mode", "")).lower()
-        if mode == "legacy" or current_parameters.get("use_legacy", False):
+        if not should_use_fast_math_video(current_parameters):
             async for event in self._run_legacy(ctx):
                 yield event
             return

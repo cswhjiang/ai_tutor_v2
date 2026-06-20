@@ -402,7 +402,7 @@ Text("因为"), MathTex(r"a>b"), Text("所以...")  →  分成三个对象排�
       self.play(...)
       ...
  - 旁白文本必须为中文自然口语，符合科普讲解风格
- - 一定增加 `from manim_voiceover.services.bytedance import ByteDanceService` 这个语句，并使用 `ByteDanceService`来生成语音，它可以处理中文、英文以及 数学公式。
+ - 一定增加 `from src.local_manim_voiceover_services.bytedance import ByteDanceService` 这个语句，并使用项目内的 `ByteDanceService` 来生成语音。它可以处理中文、英文以及数学公式，不要从 `manim_voiceover.services.bytedance` 导入，也不要假设该文件已复制到 `.venv`。
  - ByteDanceService中的参数已经设置好，不需要额外设置。使用举例：`self.set_speech_service(ByteDanceService())`
 
  - 
