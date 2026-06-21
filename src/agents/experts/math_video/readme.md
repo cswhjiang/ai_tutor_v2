@@ -4,9 +4,11 @@
 
 当前有三条生成路线，默认路线由 `conf/jsons/system.json` 中的 `math_video_generation_route` 控制，修改配置并重启服务后生效。
 
-- `manimce`: `SolutionAgent -> ShotAgent -> CodeGenerationAgent -> RenderAgent`，使用 Manim CE 和 `manim_voiceover`。
+- `manimce`: `ManimCESolutionAgent -> ManimCEShotAgent -> CodeGenerationAgent -> RenderAgent`，使用 Manim CE 和 `manim_voiceover`。
 - `fast`: 单次脚本生成 + 固定 Manim CE 模板，速度快，但表达能力较弱。
-- `manimgl`: `SolutionAgent -> ShotAgent -> ManimGLCodeGenerationAgent -> ManimGLRenderAgent`，使用 `reference-projects/manim` 中的 ManimGL 源码，通过 Volcengine TTS 合成旁白，并用 ManimGL 的 `add_sound` 合成到视频中。
+- `manimgl`: `ManimGLSolutionAgent -> ManimGLShotAgent -> ManimGLCodeGenerationAgent -> ManimGLRenderAgent`，使用 `reference-projects/manim` 中的 ManimGL 源码，通过 Volcengine TTS 合成旁白，并用 ManimGL 的 `add_sound` 合成到视频中。
+
+`manimce` 和 `manimgl` 不共享解题或分镜 agent。两条路线分别使用独立的 state key 和 per-agent LLM 配置，后续可以单独优化 prompt、模型和 reasoning level。
 
 ## 配置
 

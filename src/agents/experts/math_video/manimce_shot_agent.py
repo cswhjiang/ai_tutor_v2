@@ -1,0 +1,193 @@
+import datetime
+from typing import AsyncGenerator
+
+from google.adk.agents import BaseAgent, LlmAgent
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event, EventActions
+from google.adk.models import LlmRequest
+from google.genai.types import Content, Part
+
+from conf.system import SYS_CONFIG
+from src.agents.experts.math_video.manimce_solution_agent import MANIMCE_SOLUTION_KEY
+from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
+from src.logger import logger
+from src.observability.timing import compact_text, timing_context_from_invocation, timing_stage
+
+
+MANIMCE_SHOT_DESIGN_KEY = "math_video/manimce_shot_design"
+
+
+async def manimce_shot_before_model_callback(
+    callback_context: CallbackContext,
+    llm_request: LlmRequest,
+):
+    """Build the model request for ManimCE shot design."""
+    current_parameters = callback_context.state.get("current_parameters", {})
+    solution = callback_context.state.get(MANIMCE_SOLUTION_KEY, "")
+    logger.debug(
+        "ManimCEShotAgent received solution chars={} preview={}",
+        len(solution),
+        compact_text(solution),
+    )
+
+    current_prompt = current_parameters["prompt"]
+    current_info = current_parameters.get("current_info", "null")
+    llm_request.contents.append(
+        Content(
+            role="user",
+            parts=[
+                Part(
+                    text=(
+                        f"当前的任务是：{current_prompt}\n"
+                        f" 当前已经收集到的信息是：{current_info}\n"
+                    )
+                )
+            ],
+        )
+    )
+
+    if solution:
+        llm_request.contents.append(
+            Content(
+                role="user",
+                parts=[Part(text=f"当前答案智能体提供的解题步骤为：{solution}\n")],
+            )
+        )
+
+    input_img_name = current_parameters.get("input_img_name", [])
+    if input_img_name:
+        artifact_parts = [Part(text="以下是和任务相关的图片：\n")]
+        for i, art_name in enumerate(input_img_name):
+            artifact_parts.append(Part(text=f"这是第{i + 1}张图片，它的名称是{art_name}"))
+            art_part = await callback_context.load_artifact(filename=art_name)
+            artifact_parts.append(art_part)
+        llm_request.contents.append(Content(role="user", parts=artifact_parts))
+
+
+class ManimCEShotAgent(BaseAgent):
+    """Generate shot design used by the ManimCE route."""
+
+    model_config = {"arbitrary_types_allowed": True}
+    llm: LlmAgent
+
+    def __init__(self, name: str, description: str = "", llm_model: str = ""):
+        if not llm_model:
+            llm_model = SYS_CONFIG.llm_model
+        resolved_llm_model, _ = resolve_agent_llm_settings(llm_model, agent_name=name)
+        logger.info(f"{name}: using llm: {resolved_llm_model}")
+        model_kwargs = build_model_kwargs(llm_model, response_json=True, agent_name=name)
+
+        time_str = datetime.date.today().strftime("%Y-%m-%d")
+        llm = LlmAgent(
+            name=name,
+            **model_kwargs,
+            description=description,
+            instruction=MANIMCE_SHOT_INSTRUCTION.format(TIME_STR=time_str),
+            before_model_callback=manimce_shot_before_model_callback,
+            output_key=MANIMCE_SHOT_DESIGN_KEY,
+        )
+        super().__init__(name=name, description=description, llm=llm)
+
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        """Run the ManimCE shot agent and publish a step status event."""
+        current_parameters = ctx.session.state.get("current_parameters", {})
+        if "prompt" not in current_parameters:
+            error_text = f"提供给{self.name}的参数缺失，必须包含：prompt"
+            current_output = {
+                "author": self.name,
+                "status": "error",
+                "message": error_text,
+                "output_text": "",
+            }
+            logger.error(error_text)
+            yield Event(
+                author=self.name,
+                content=Content(role="model", parts=[Part(text=error_text)]),
+                actions=EventActions(state_delta={"current_output": current_output}),
+            )
+            return
+
+        timing_context = timing_context_from_invocation(ctx)
+        with timing_stage(
+            "agent",
+            self.name,
+            **timing_context,
+            metadata={"mode": "manimce_math_video"},
+        ) as agent_timing:
+            text_list = []
+            with timing_stage(
+                "llm",
+                f"{self.name}.llm",
+                **timing_context,
+                metadata={"output_key": MANIMCE_SHOT_DESIGN_KEY},
+            ):
+                async for event in self.llm.run_async(ctx):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        generated_text = next(
+                            (part.text for part in event.content.parts if part.text),
+                            None,
+                        )
+                        if not generated_text:
+                            continue
+                        yield event
+                        text_list.append(generated_text)
+
+            if not text_list:
+                message = f"{self.name} 生成回复失败"
+                message_for_user = "生成回复失败"
+                logger.error(message)
+                agent_timing["status"] = "error"
+                current_output = {
+                    "author": self.name,
+                    "status": "error",
+                    "message": message,
+                    "message_for_user": message_for_user,
+                    "output_text": "",
+                }
+            else:
+                message = f"{self.name} 已完成方案设计"
+                message_for_user = " 已完成当前步骤执行"
+                output_text = "\n".join(text_list)
+                agent_timing["output_chars"] = len(output_text)
+                current_output = {
+                    "author": self.name,
+                    "status": "success",
+                    "message": message,
+                    "message_for_user": message_for_user,
+                    "output_text": output_text,
+                }
+
+            yield Event(
+                author=self.name,
+                content=Content(role="model", parts=[Part(text=message)]),
+                actions=EventActions(state_delta={"current_output": current_output}),
+            )
+
+
+MANIMCE_SHOT_INSTRUCTION = """
+你是一个视频分镜和视频制作的专家，擅长利用 Manim CE版做科普视频的制作。
+你会接受用户输入的一个理工科任务或者一个问题，以及其他智能体提供的答案。你的任务是协助生成一个利用Manim CE版做讲解的视频，你负责的是分镜。
+
+你的任务是根据任务描述和参考给定信息来输出分镜设计。
+
+
+# 任务输出要求
+ - 视频画面的宽高比为 16:9
+
+# 必要信息
+ - 当前时间：{TIME_STR}
+
+# 工作方法
+ - 先复述一遍问题，然后呈现问题的讲解，最后总结一下
+
+# 任务输入
+ - 问题：生成用户描述的理工科相关的任务
+ - 图片：数量不定相关的图片，可选项。
+ - 答案：ManimCESolutionAgent 提供的答案。
+
+
+# 任务输出
+任务的输出为讲解视频的分镜设计，一定要包含旁白。以json形式输出你的结果。具体字段你自行决定。
+
+"""

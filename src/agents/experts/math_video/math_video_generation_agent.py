@@ -3,19 +3,21 @@ from google.adk.agents import SequentialAgent
 from conf.agent import expert_name_2_desc
 from src.agents.experts.math_video.code_generation_agent import CodeGenerationAgent
 from src.agents.experts.math_video.fast_math_video_agent import FastMathVideoGenerationAgent
+from src.agents.experts.math_video.manimce_shot_agent import ManimCEShotAgent
+from src.agents.experts.math_video.manimce_solution_agent import ManimCESolutionAgent
 from src.agents.experts.math_video.manimgl_code_generation_agent import ManimGLCodeGenerationAgent
 from src.agents.experts.math_video.manimgl_render_agent import ManimGLRenderAgent
+from src.agents.experts.math_video.manimgl_shot_agent import ManimGLShotAgent
+from src.agents.experts.math_video.manimgl_solution_agent import ManimGLSolutionAgent
 from src.agents.experts.math_video.render_agent import RenderAgent
 from src.agents.experts.math_video.routed_math_video_agent import RoutedMathVideoGenerationAgent
-from src.agents.experts.math_video.shot_agent import ShotAgent
-from src.agents.experts.math_video.solution_agent import SolutionAgent
 
 
 manimce_math_video_generation_agent = SequentialAgent(
     name="ManimCEMathVideoGenerationAgent",
     sub_agents=[
-        SolutionAgent(name="SolutionAgent"),
-        ShotAgent(name="ShotAgent"),
+        ManimCESolutionAgent(name="ManimCESolutionAgent"),
+        ManimCEShotAgent(name="ManimCEShotAgent"),
         CodeGenerationAgent(name="CodeGenerationAgent"),
         RenderAgent(name="RenderAgent"),
     ],
@@ -29,8 +31,8 @@ fast_math_video_generation_agent = FastMathVideoGenerationAgent(
 manimgl_math_video_generation_agent = SequentialAgent(
     name="ManimGLMathVideoGenerationAgent",
     sub_agents=[
-        SolutionAgent(name="SolutionAgent"),
-        ShotAgent(name="ShotAgent"),
+        ManimGLSolutionAgent(name="ManimGLSolutionAgent"),
+        ManimGLShotAgent(name="ManimGLShotAgent"),
         ManimGLCodeGenerationAgent(name="ManimGLCodeGenerationAgent"),
         ManimGLRenderAgent(name="ManimGLRenderAgent"),
     ],

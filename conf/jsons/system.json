@@ -15,21 +15,29 @@
       "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "low"
     },
-    "SolutionAgent": {
+    "ManimCESolutionAgent": {
       "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "medium"
     },
-    "ShotAgent": {
+    "ManimCEShotAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
+    "ManimGLSolutionAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
+    "ManimGLShotAgent": {
       "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "medium"
     },
     "CodeGenerationAgent": {
-      "llm_model": "gemini/gemini-3.5-flash",
+      "llm_model": "openai/gpt-5.5",
       "reasoning_level": "high"
     },
     "ManimGLCodeGenerationAgent": {
-      "llm_model": "gemini/gemini-3.5-flash",
-      "reasoning_level": "medium"
+      "llm_model": "openai/gpt-5.5",
+      "reasoning_level": "high"
     },
     "HTMLGenerationAgent": {
       "llm_model": "gemini/gemini-3.5-flash",

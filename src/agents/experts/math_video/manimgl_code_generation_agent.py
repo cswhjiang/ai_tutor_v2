@@ -10,6 +10,8 @@ from google.genai.types import Content, Part
 from pydantic import BaseModel, Field
 
 from conf.system import SYS_CONFIG
+from src.agents.experts.math_video.manimgl_shot_agent import MANIMGL_SHOT_DESIGN_KEY
+from src.agents.experts.math_video.manimgl_solution_agent import MANIMGL_SOLUTION_KEY
 from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
 from src.observability.timing import timing_context_from_invocation, timing_stage
@@ -38,8 +40,8 @@ async def manimgl_code_generation_before_model_callback(
 ):
     """Build the model request for ManimGL code generation."""
     current_parameters = callback_context.state.get("current_parameters", {})
-    solution = callback_context.state.get("math_video/solution", "")
-    shot_design = callback_context.state.get("math_video/shot_design", "")
+    solution = callback_context.state.get(MANIMGL_SOLUTION_KEY, "")
+    shot_design = callback_context.state.get(MANIMGL_SHOT_DESIGN_KEY, "")
 
     current_prompt = current_parameters["prompt"]
     current_info = current_parameters.get("current_info", "null")
