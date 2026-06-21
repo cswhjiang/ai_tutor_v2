@@ -16,6 +16,7 @@ from src.agents.executor.executor_agent import AgentInvocationService
 from conf.system import SYS_CONFIG
 from src.logger import logger
 from src.context import username_context
+from src.observability.timing import make_trace_id, log_timing_event, timing_stage
 from server.utils.util import (save_upload_file_sync, format_sse_event, current_time_str, encode_media,
                          SessionCreateResponse)
 from src.utils import database_op_with_retry
@@ -160,10 +161,25 @@ async def chat_with_agent(
 
     uid = user_id or SYS_CONFIG.user_id_default
     sid = session_id
+    trace_id = make_trace_id(uid, sid)
     debug_username_set = set(SYS_CONFIG.DEBUG_USERS)
     # logger.info(debug_username_set)
 
     async def event_stream():
+        request_start = time.perf_counter()
+        log_timing_event(
+            event="stage_start",
+            stage="http",
+            name="chat_request",
+            trace_id=trace_id,
+            uid=uid,
+            sid=sid,
+            metadata={
+                "image_count": len(img_paths),
+                "document_count": len(document_paths),
+                "message_chars": len(message),
+            },
+        )
         logger.info(f"workflow stated! uid: {uid}, username: {username}, sid: {sid}, user instruction: {message}")
         # 这个内部生成器现在可以安全地使用上面已经保存好的路径
         # yield format_sse_event({"type": "step", "content": f"用户指令: {message}"})
@@ -179,12 +195,19 @@ async def chat_with_agent(
                 )
 
         try: # 尝试获取之前创建的session
-            current_session = await database_op_with_retry(
-                session_service.get_session,
-                app_name=SYS_CONFIG.app_name,
-                user_id=uid,
-                session_id=sid,
-            )
+            with timing_stage(
+                "storage",
+                "session_get_before_request",
+                trace_id=trace_id,
+                uid=uid,
+                sid=sid,
+            ):
+                current_session = await database_op_with_retry(
+                    session_service.get_session,
+                    app_name=SYS_CONFIG.app_name,
+                    user_id=uid,
+                    session_id=sid,
+                )
             if not current_session:
                 logger.info(f"current user & sessions: ")
                 for app_name, app in session_service.sessions.items():
@@ -198,17 +221,57 @@ async def chat_with_agent(
         except Exception as e:
             logger.error(f"Error occurred while retrieving the current session: {str(e)}")
             yield format_sse_event({"type": "error", "content": "Error occurred while retrieving the current session, please try again later"})
+            log_timing_event(
+                event="stage_end",
+                stage="http",
+                name="chat_request",
+                trace_id=trace_id,
+                uid=uid,
+                sid=sid,
+                status="error",
+                duration_ms=(time.perf_counter() - request_start) * 1000,
+                metadata={"error": "session_get_failed"},
+            )
             # logger.error(f"获取当前session出错：{str(e)}")
             # yield format_sse_event({"type": "error", "content": f"获取当前session出错, 请稍后重试"})
             return
         
         try: # 设置initial_state
-            await set_initial_state(uid, sid, message, img_paths, document_paths) # 将用户输入放到state里面
+            with timing_stage(
+                "storage",
+                "state_initialize",
+                trace_id=trace_id,
+                uid=uid,
+                sid=sid,
+                metadata={
+                    "image_count": len(img_paths),
+                    "document_count": len(document_paths),
+                },
+            ):
+                await set_initial_state(
+                    uid,
+                    sid,
+                    message,
+                    img_paths,
+                    document_paths,
+                    timing_trace_id=trace_id,
+                ) # 将用户输入放到state里面
         except Exception as e:
             # error_text = f"初始化state失败: {str(e)}"
             error_text = f"Failed to initialize state: {str(e)}"
             logger.error(error_text)
             yield format_sse_event({"type": "error", "content": error_text})
+            log_timing_event(
+                event="stage_end",
+                stage="http",
+                name="chat_request",
+                trace_id=trace_id,
+                uid=uid,
+                sid=sid,
+                status="error",
+                duration_ms=(time.perf_counter() - request_start) * 1000,
+                metadata={"error": "state_initialize_failed"},
+            )
             return
 
         # --- 创建执行agent的Runtime ---
@@ -238,38 +301,67 @@ async def chat_with_agent(
         else:
             yield format_sse_event({"type": "step", "content": "Orchestrator is handling the request..."})
 
-        async for app_event in executor.stream_agent_events(
-            orchestrator_runner,
-            user_id=uid,
-            session_id=sid,
-            new_message=Content(
-                role='user',
-                parts=[Part(text=f"请处理用户最新任务：{message}")]
-            ),
+        with timing_stage(
+            "adk_run",
+            "OrchestratorAgent",
+            trace_id=trace_id,
+            uid=uid,
+            sid=sid,
         ):
-            yield format_sse_event(app_event)
+            async for app_event in executor.stream_agent_events(
+                orchestrator_runner,
+                user_id=uid,
+                session_id=sid,
+                new_message=Content(
+                    role='user',
+                    parts=[Part(text=f"请处理用户最新任务：{message}")]
+                ),
+                trace_id=trace_id,
+            ):
+                yield format_sse_event(app_event)
 
         final_summary = executor.latest_final_response_text
         if not final_summary:
             final_summary = "The task process has finished."
 
-        post_orchestrator_session = await database_op_with_retry(
-            session_service.get_session,
-            app_name=SYS_CONFIG.app_name,
-            user_id=uid,
-            session_id=sid,
-        )
-        if post_orchestrator_session.state.get("latest_tool_output_ready"):
-            current_output = await executor.persist_current_output(
-                summary=post_orchestrator_session.state.get("latest_tool_summary", "")
+        with timing_stage(
+            "storage",
+            "session_get_after_orchestrator",
+            trace_id=trace_id,
+            uid=uid,
+            sid=sid,
+        ):
+            post_orchestrator_session = await database_op_with_retry(
+                session_service.get_session,
+                app_name=SYS_CONFIG.app_name,
+                user_id=uid,
+                session_id=sid,
             )
+        if post_orchestrator_session.state.get("latest_tool_output_ready"):
+            with timing_stage(
+                "storage",
+                "persist_current_output",
+                trace_id=trace_id,
+                uid=uid,
+                sid=sid,
+            ):
+                current_output = await executor.persist_current_output(
+                    summary=post_orchestrator_session.state.get("latest_tool_summary", "")
+                )
             final_summary = (
                 current_output.get("message_for_user")
                 or current_output.get("message")
                 or final_summary
             )
 
-        final_session = await database_op_with_retry(
+        with timing_stage(
+            "storage",
+            "session_get_final",
+            trace_id=trace_id,
+            uid=uid,
+            sid=sid,
+        ):
+            final_session = await database_op_with_retry(
                 session_service.get_session,
                 app_name=SYS_CONFIG.app_name,
                 user_id=uid,
@@ -302,8 +394,22 @@ async def chat_with_agent(
 
         # final_art_base64 = [encode_image(art['path']) for art in final_art] # NOTE: 需要判断支持视频
 
-        logger.info(final_art) ## TypeError: expected str, bytes or os.PathLike object, not NoneType
-        final_art_base64 = [encode_media(art['path']) for art in final_art]  # TODO: bug. NOTE: 需要判断支持视频
+        logger.info(
+            "final artifacts selected: {}",
+            [
+                {"name": art.get("name"), "path": art.get("path"), "description_chars": len(art.get("description", ""))}
+                for art in final_art
+            ],
+        ) ## TypeError: expected str, bytes or os.PathLike object, not NoneType
+        with timing_stage(
+            "postprocess",
+            "encode_final_media",
+            trace_id=trace_id,
+            uid=uid,
+            sid=sid,
+            metadata={"artifact_count": len(final_art)},
+        ):
+            final_art_base64 = [encode_media(art['path']) for art in final_art]  # TODO: bug. NOTE: 需要判断支持视频
         final_art_base64 = [f for f in final_art_base64 if f is not None]
 
         # 返回的文本
@@ -331,6 +437,20 @@ async def chat_with_agent(
             "image": final_art_base64,
             "filenames": final_filenames,
         }
+        log_timing_event(
+            event="stage_end",
+            stage="http",
+            name="chat_request",
+            trace_id=trace_id,
+            uid=uid,
+            sid=sid,
+            status="success",
+            duration_ms=(time.perf_counter() - request_start) * 1000,
+            metadata={
+                "final_steps": final_steps,
+                "artifact_count": len(final_art_base64),
+            },
+        )
         yield format_sse_event({"type": "final", "content": final_data})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")  # type: ignore

@@ -6,6 +6,7 @@ from src.agents.experts.math_video.render_agent import (
     PROJECT_ROOT,
     build_manim_subprocess_env,
     normalize_manim_voiceover_imports,
+    summarize_manim_result,
 )
 
 
@@ -38,3 +39,21 @@ def test_build_manim_subprocess_env_deduplicates_project_root():
     paths = env["PYTHONPATH"].split(os.pathsep)
 
     assert paths.count(str(PROJECT_ROOT)) == 1
+
+
+def test_summarize_manim_result_counts_output_without_logging_full_stdout():
+    result = {
+        "ok": True,
+        "code": "0",
+        "stdout": "Animation 1: x\n正在通过字节跳动合成语音\ndone with audio\n",
+        "stderr": "",
+    }
+
+    summary = summarize_manim_result(result)
+
+    assert summary["ok"] is True
+    assert summary["stdout_chars"] == len(result["stdout"])
+    assert summary["animation_count"] == 1
+    assert summary["tts_request_count"] == 1
+    assert summary["tts_done_count"] == 1
+    assert "stdout_preview" not in summary

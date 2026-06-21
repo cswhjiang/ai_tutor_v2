@@ -1,4 +1,5 @@
 import datetime
+import json as std_json
 from typing import AsyncGenerator, List, Optional, Any, Dict, Tuple
 import json5 as json  # note: 暂时简单粗暴处理。gpt 有时候输出的json会加用 '//' 表示的注释
 import uuid
@@ -350,12 +351,44 @@ class Orchestrator:
         """
         final_response_text_list = []
         async for event in self.runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message):
-            logger.debug(f"uid: {user_id}, sid: {session_id}, Event: {event.model_dump_json(indent=2, exclude_none=True)}")
+            state_delta_keys = []
+            if event.actions and event.actions.state_delta:
+                state_delta_keys = sorted(str(key) for key in event.actions.state_delta.keys())
+            text_chars = 0
+            if event.content and event.content.parts:
+                text_chars = sum(len(part.text or "") for part in event.content.parts if part.text)
+            logger.debug(
+                "uid: {}, sid: {}, ADK_EVENT {}",
+                user_id,
+                session_id,
+                std_json.dumps(
+                    {
+                        "author": event.author,
+                        "partial": bool(event.partial),
+                        "final": event.is_final_response(),
+                        "text_chars": text_chars,
+                        "function_calls": [call.name for call in event.get_function_calls()],
+                        "function_responses": [
+                            response.name for response in event.get_function_responses()
+                        ],
+                        "state_delta_keys": state_delta_keys,
+                        "error_code": getattr(event, "error_code", None),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
             if event.is_final_response() and event.content and event.content.parts:
                 text_part = next((part.text for part in event.content.parts if part.text), None)
                 if text_part:
                     final_response_text = text_part
-                    logger.info(f"uid: {user_id}, sid: {session_id}, [{self.runner.agent.name}] 响应文本: '{final_response_text}'")
+                    logger.info(
+                        "uid: {}, sid: {}, [{}] response chars={}",
+                        user_id,
+                        session_id,
+                        self.runner.agent.name,
+                        len(final_response_text),
+                    )
                     final_response_text_list.append(final_response_text)
         if self.max_iter > 0:
             return final_response_text_list[-2] if len(final_response_text_list) >= 2 else ""

@@ -19,6 +19,7 @@ from google.genai.types import Content
 from conf.system import SYS_CONFIG
 from src.logger import logger
 from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
+from src.observability.timing import timing_context_from_invocation, timing_stage
 
 
 async def solution_agent_before_model_callback(callback_context: CallbackContext, llm_request: LlmRequest):
@@ -110,33 +111,48 @@ class SolutionAgent(BaseAgent):
             )
             return
 
-        text_list = []
-        async for event in self.llm.run_async(ctx):
-            if event.is_final_response() and event.content and event.content.parts:
-                generated_text = next((part.text for part in event.content.parts if part.text), None)
-                if not generated_text:
-                    continue
-                yield event  # 模型生成的回复会被添加到content中
-                text_list.append(generated_text)
+        timing_context = timing_context_from_invocation(ctx)
+        with timing_stage(
+            "agent",
+            self.name,
+            **timing_context,
+            metadata={"mode": "legacy_math_video"},
+        ) as agent_timing:
+            text_list = []
+            with timing_stage(
+                "llm",
+                f"{self.name}.llm",
+                **timing_context,
+                metadata={"output_key": "math_video/solution"},
+            ):
+                async for event in self.llm.run_async(ctx):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        generated_text = next((part.text for part in event.content.parts if part.text), None)
+                        if not generated_text:
+                            continue
+                        yield event  # 模型生成的回复会被添加到content中
+                        text_list.append(generated_text)
 
-        if len(text_list) == 0:
-            message = "SolutionAgent 生成回复失败"
-            message_for_user = "生成回复失败"
-            logger.error(message)
-            current_output = {"author": self.name, 'status': 'error', 'message': message,
-                              'message_for_user': message_for_user, 'output_text': ''}
-        else:
-            message = "SolutionAgent 已完成方案设计"
-            message_for_user = " 已完成当前步骤执行"
-            output_text = '\n'.join(text_list)
-            current_output = {"author": self.name, 'status': 'success', 'message': message,
-                              'message_for_user': message_for_user, 'output_text': output_text}
+            if len(text_list) == 0:
+                message = "SolutionAgent 生成回复失败"
+                message_for_user = "生成回复失败"
+                logger.error(message)
+                agent_timing["status"] = "error"
+                current_output = {"author": self.name, 'status': 'error', 'message': message,
+                                  'message_for_user': message_for_user, 'output_text': ''}
+            else:
+                message = "SolutionAgent 已完成方案设计"
+                message_for_user = " 已完成当前步骤执行"
+                output_text = '\n'.join(text_list)
+                agent_timing["output_chars"] = len(output_text)
+                current_output = {"author": self.name, 'status': 'success', 'message': message,
+                                  'message_for_user': message_for_user, 'output_text': output_text}
 
-        yield Event(
-            author='SolutionAgent',
-            content=Content(role='model', parts=[Part(text=message)]),
-            actions=EventActions(state_delta={'current_output': current_output})
-        )
+            yield Event(
+                author='SolutionAgent',
+                content=Content(role='model', parts=[Part(text=message)]),
+                actions=EventActions(state_delta={'current_output': current_output})
+            )
 
 
 solution_instruction = """

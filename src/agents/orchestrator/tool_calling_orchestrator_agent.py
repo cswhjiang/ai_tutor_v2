@@ -14,6 +14,7 @@ from conf.system import SYS_CONFIG
 from src.agents.experts.math_video.math_video_generation_agent import math_video_generation_agent
 from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
+from src.observability.timing import compact_text, timing_context_from_invocation, timing_stage
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
@@ -98,57 +99,75 @@ class MathVideoToolAgent(BaseAgent):
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Adapt AgentTool request text into `current_parameters` and run math video."""
-        request = _parse_math_video_tool_request(_content_text(ctx.user_content))
-        input_artifacts = ctx.session.state.get("input_artifacts", []) or []
-        history_context = _build_history_context_from_state(ctx.session.state)
-        parameters = {
-            "prompt": request["prompt"],
-            "input_img_name": _input_image_names(input_artifacts),
-            "current_info": history_context if history_context else "null",
-            "math_video_mode": request["math_video_mode"],
-        }
-        logger.info(f"AgentTool invoking MathVideoGenerationAgent: {parameters}")
+        timing_context = timing_context_from_invocation(ctx)
+        with timing_stage("tool", "math_video_tool", **timing_context) as tool_timing:
+            request = _parse_math_video_tool_request(_content_text(ctx.user_content))
+            input_artifacts = ctx.session.state.get("input_artifacts", []) or []
+            history_context = _build_history_context_from_state(ctx.session.state)
+            parameters = {
+                "prompt": request["prompt"],
+                "input_img_name": _input_image_names(input_artifacts),
+                "current_info": history_context if history_context else "null",
+                "math_video_mode": request["math_video_mode"],
+            }
+            tool_timing["mode"] = parameters["math_video_mode"]
+            tool_timing["prompt_chars"] = len(parameters["prompt"])
+            logger.info(
+                "AgentTool invoking MathVideoGenerationAgent: {}",
+                {
+                    **parameters,
+                    "prompt": compact_text(parameters["prompt"]),
+                    "current_info": compact_text(parameters["current_info"]),
+                },
+            )
 
-        # The existing math-video agent reads `current_parameters` directly from
-        # session state. Mutate the child in-memory session for immediate use and
-        # emit the delta so AgentTool forwards it to the parent context.
-        ctx.session.state["current_parameters"] = parameters
-        yield Event(
-            author=self.name,
-            actions=EventActions(
-                state_delta={
-                    "current_parameters": parameters,
-                    "latest_tool_output_ready": False,
-                    "latest_tool_summary": "生成数学讲解视频",
-                }
-            ),
-        )
+            # The existing math-video agent reads `current_parameters` directly from
+            # session state. Mutate the child in-memory session for immediate use and
+            # emit the delta so AgentTool forwards it to the parent context.
+            ctx.session.state["current_parameters"] = parameters
+            yield Event(
+                author=self.name,
+                actions=EventActions(
+                    state_delta={
+                        "current_parameters": parameters,
+                        "latest_tool_output_ready": False,
+                        "latest_tool_summary": "生成数学讲解视频",
+                    }
+                ),
+            )
 
-        async for event in self.math_video_agent.run_async(ctx):
-            yield event
+            with timing_stage(
+                "agent",
+                "MathVideoGenerationAgent",
+                **timing_context,
+                metadata={"mode": parameters["math_video_mode"]},
+            ):
+                async for event in self.math_video_agent.run_async(ctx):
+                    yield event
 
-        current_output = ctx.session.state.get("current_output", {})
-        yield Event(
-            author=self.name,
-            content=Content(
-                role="model",
-                parts=[
-                    Part(
-                        text=(
-                            current_output.get("message_for_user")
-                            or current_output.get("message")
-                            or "数学讲解视频生成完成"
+            current_output = ctx.session.state.get("current_output", {})
+            tool_timing["output_status"] = current_output.get("status")
+            yield Event(
+                author=self.name,
+                content=Content(
+                    role="model",
+                    parts=[
+                        Part(
+                            text=(
+                                current_output.get("message_for_user")
+                                or current_output.get("message")
+                                or "数学讲解视频生成完成"
+                            )
                         )
-                    )
-                ],
-            ),
-            actions=EventActions(
-                state_delta={
-                    "latest_tool_output_ready": True,
-                    "latest_tool_summary": "生成数学讲解视频",
-                }
-            ),
-        )
+                    ],
+                ),
+                actions=EventActions(
+                    state_delta={
+                        "latest_tool_output_ready": True,
+                        "latest_tool_summary": "生成数学讲解视频",
+                    }
+                ),
+            )
 
 
 async def direct_orchestrator_before_model_callback(

@@ -1,8 +1,7 @@
 from manim import *
 from manim_voiceover import VoiceoverScene
-# from bytedance import ByteDanceService
 
-from manim_voiceover.services.bytedance import ByteDanceService
+from src.local_manim_voiceover_services.bytedance import ByteDanceService
 
 class ByteDanceExample(VoiceoverScene):
     def construct(self):

@@ -1,3 +1,4 @@
+import json
 import os.path
 from typing import AsyncGenerator, Optional, Any, Dict
 
@@ -11,6 +12,7 @@ from google.genai.types import Content, Part
 
 from src.logger import logger
 from conf.system import SYS_CONFIG
+from src.observability.timing import get_trace_id_from_state, timing_stage
 from src.utils import database_op_with_retry
 
 
@@ -37,15 +39,29 @@ class AgentInvocationService:
         self.expert_runners = expert_runners
         self.latest_final_response_text = ""
 
-    async def run_agent_and_log_events(self, runner: Runner, user_id: str, session_id: str, new_message: Optional[Content] = None) -> str:
+    async def run_agent_and_log_events(
+        self,
+        runner: Runner,
+        user_id: str,
+        session_id: str,
+        new_message: Optional[Content] = None,
+        trace_id: str | None = None,
+    ) -> str:
         final_response_text = ""
-        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message): # 这个是那个agent运行的？
-            logger.debug(f"Event: {event.model_dump_json(indent=2, exclude_none=True)}")
-            if event.is_final_response() and event.content and event.content.parts:
-                text_part = self._event_text(event)
-                if text_part:
-                    final_response_text = text_part
-                    logger.info(f"[{runner.agent.name}] 最终响应文本: '{final_response_text}'")
+        with timing_stage(
+            "adk_run",
+            runner.agent.name,
+            trace_id=trace_id,
+            uid=user_id,
+            sid=session_id,
+        ):
+            async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message): # 这个是那个agent运行的？
+                self._log_event_summary(event, trace_id=trace_id)
+                if event.is_final_response() and event.content and event.content.parts:
+                    text_part = self._event_text(event)
+                    if text_part:
+                        final_response_text = text_part
+                        logger.info(f"[{runner.agent.name}] final response chars={len(final_response_text)}")
         return final_response_text
 
     async def stream_agent_events(
@@ -54,6 +70,7 @@ class AgentInvocationService:
         user_id: str,
         session_id: str,
         new_message: Optional[Content] = None,
+        trace_id: str | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run an ADK agent with native SSE streaming and yield app events.
 
@@ -74,7 +91,7 @@ class AgentInvocationService:
             new_message=new_message,
             run_config=run_config,
         ):
-            logger.debug(f"Event: {event.model_dump_json(indent=2, exclude_none=True)}")
+            self._log_event_summary(event, trace_id=trace_id)
 
             for app_event in self._event_to_app_stream_events(
                 event=event,
@@ -94,7 +111,7 @@ class AgentInvocationService:
                 text_part = self._event_text(event)
                 if text_part:
                     final_response_text = text_part
-                    logger.info(f"[{runner.agent.name}] 最终响应文本: '{final_response_text}'")
+                    logger.info(f"[{runner.agent.name}] final response chars={len(final_response_text)}")
 
         self.latest_final_response_text = final_response_text
 
@@ -178,6 +195,40 @@ class AgentInvocationService:
             and not getattr(part, "thought", False)
             and not part.function_call
             and not part.function_response
+        )
+
+    def _event_summary(self, event: Event, trace_id: str | None = None) -> Dict[str, Any]:
+        """Return a compact, non-payload ADK event summary for debug logs."""
+        state_delta = {}
+        if event.actions and event.actions.state_delta:
+            state_delta = event.actions.state_delta
+
+        function_calls = event.get_function_calls()
+        function_responses = event.get_function_responses()
+        text = self._event_text(event)
+        summary = {
+            "author": event.author,
+            "partial": bool(event.partial),
+            "final": event.is_final_response(),
+            "text_chars": len(text),
+            "function_calls": [call.name for call in function_calls],
+            "function_responses": [response.name for response in function_responses],
+            "state_delta_keys": sorted(str(key) for key in state_delta.keys()),
+            "error_code": getattr(event, "error_code", None),
+        }
+        if trace_id:
+            summary["trace_id"] = trace_id
+        return summary
+
+    def _log_event_summary(self, event: Event, trace_id: str | None = None) -> None:
+        """Write a compact ADK event debug log instead of the full event JSON."""
+        logger.debug(
+            "ADK_EVENT {}",
+            json.dumps(
+                self._event_summary(event, trace_id=trace_id),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
         )
 
     def _tool_status_message(self, tool_name: str, started: bool) -> str:
@@ -353,6 +404,7 @@ class AgentInvocationService:
             current_output = current_session.state.get('current_output')
         
         current_step = current_session.state.get('step', 0) or 0
+        trace_id = get_trace_id_from_state(current_session.state)
         artifacts_history = current_session.state.get('artifacts_history', []) or []
         text_history = current_session.state.get('text_history', []) or []
         message_history = current_session.state.get('message_history', []) or []
@@ -375,7 +427,16 @@ class AgentInvocationService:
                 current_sid = current_session.state['sid']
                 current_uid = current_session.state['uid']
                 logger.info(f"saving artifact {art['name']}")
-                art_path = await self.save_artifact(art['name'], current_uid, current_sid)
+                with timing_stage(
+                    "artifact",
+                    "save_output_artifact",
+                    trace_id=trace_id,
+                    uid=current_uid,
+                    sid=current_sid,
+                    metadata={"artifact_name": art.get("name")},
+                ) as timing:
+                    art_path = await self.save_artifact(art['name'], current_uid, current_sid)
+                    timing["artifact_path"] = art_path
                 art['path'] = art_path
 
                 logger.info(f"saved to {art_path}")

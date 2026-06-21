@@ -20,6 +20,7 @@ from google.genai.types import Content, Part
 from google.adk.events import Event, EventActions
 from server.utils.util import load_file_as_part
 from server.agents_manager import session_service, artifact_service
+from src.observability.timing import TRACE_ID_STATE_KEY
 from src.utils import database_op_with_retry
 
 
@@ -223,7 +224,14 @@ async def docx_to_md_with_images_pandoc(
 
 
 # --- state定义以及初始化 ---
-async def set_initial_state(uid:str, sid:str, message:str, img_paths: Optional[List[Union[str, None]]] = None, doc_paths: Optional[List[Union[str, None]]] = None) -> None:
+async def set_initial_state(
+    uid: str,
+    sid: str,
+    message: str,
+    img_paths: Optional[List[Union[str, None]]] = None,
+    doc_paths: Optional[List[Union[str, None]]] = None,
+    timing_trace_id: str | None = None,
+) -> None:
     """
     此函数用户初始化当前session的state，会在每次接收到用户指令后执行
     state中的*history部分会保留当前session之前的历史信息(即之前的多轮对话)
@@ -262,6 +270,8 @@ async def set_initial_state(uid:str, sid:str, message:str, img_paths: Optional[L
     state_delta['app_name'] = SYS_CONFIG.app_name
     state_delta['uid'] = uid
     state_delta['sid'] = sid
+    if timing_trace_id:
+        state_delta[TRACE_ID_STATE_KEY] = timing_trace_id
     state_delta['user_prompt'] = message
     state_delta['global_plan'] = None
     state_delta['current_plan'] = None
