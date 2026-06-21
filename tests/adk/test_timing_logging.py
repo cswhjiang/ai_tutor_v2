@@ -9,7 +9,15 @@ from src.observability.timing import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+def find_project_root(start: Path) -> Path:
+    """Return the nearest ancestor that contains the timing analyzer script."""
+    for directory in [start, *start.parents]:
+        if (directory / "scripts" / "analyze_timing_log.py").exists():
+            return directory
+    raise FileNotFoundError("Could not locate scripts/analyze_timing_log.py")
+
+
+PROJECT_ROOT = find_project_root(Path(__file__).resolve())
 
 
 def load_timing_analyzer_module():

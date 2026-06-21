@@ -1,5 +1,6 @@
-import os
 import json5
+import os
+
 from conf.path import CONF_ROOT
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -55,7 +56,7 @@ class SystemConfig(BaseModel):
     # password: dict
     secret_key: str
     base_dir: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    session_database_dir: str = os.path.join(base_dir, 'database', 'session_database')
+    session_database_dir: str = os.path.join(base_dir, 'var', 'database', 'session_database')
     os.makedirs(session_database_dir, exist_ok=True)
     DEBUG_USERS: list
     # DEBUG_USER_1: str

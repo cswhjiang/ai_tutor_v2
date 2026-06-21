@@ -4,6 +4,22 @@ source .venv/bin/activate
 python --version
 ```
 
+* 目录组织
+
+```text
+apps/      CLI 入口
+conf/      系统配置
+server/    FastAPI 后端
+src/       Agent、LLM、媒体和观测代码
+web/       Web 前端
+scripts/   工具脚本
+docs/      项目文档
+tests/     自动化测试和测试夹具
+examples/  手工实验、Manim demo 和历史样例
+data/      题库、样例等长期资料
+var/       本地运行产物，包含日志、SQLite 数据库和生成文件
+```
+
 * 运行后端
 
 本地开发环境使用：
@@ -34,7 +50,7 @@ http://localhost:9501/docs
 * 验证环境
 
 ```bash
-python -m pytest test_adk -q
+python -m pytest tests/adk -q
 python -m pip check
 ```
 

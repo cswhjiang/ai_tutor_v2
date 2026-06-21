@@ -31,7 +31,7 @@ flowchart TD
     CurrentOutput --> Tool
     Tool --> Runtime["AgentInvocationService"]
     Runtime --> ArtifactService["ADK ArtifactService"]
-    Runtime --> Outputs["outputs/images"]
+    Runtime --> Outputs["var/outputs/images"]
     Runtime --> History["state history"]
     API --> SSE["SSE step/final events"]
 ```
@@ -53,6 +53,10 @@ flowchart TD
 | `conf/jsons/system.json` | 模型、端口、session、日志、OAuth、Stripe 等系统配置。 |
 | `apps/art_cli.py` | CLI 前端，负责创建 session、发送 `/chat` 请求并消费 SSE。 |
 | `docs/` | 架构、优化记录和 review 文档。 |
+| `tests/` | 自动化测试、数学视频测试样例和测试夹具。 |
+| `examples/` | 手工实验、Manim demo、TTS demo 和历史错误样例。 |
+| `data/question_bank/` | 题库、讲义和长期样例资料。 |
+| `var/` | 本地运行产物，包括日志、SQLite 数据库、上传文件和生成视频；不进入 Git。 |
 
 ## 3. 服务入口和请求流
 
@@ -90,8 +94,8 @@ CLI 当前不会直接下载 artifact 文件，而是显示最终文本、base64
 
 | 存储 | 位置 | 用途 |
 | --- | --- | --- |
-| 业务数据库 | `database/database.db` | 用户、验证码、邀请码、会话管理等 SQLAlchemy 表。 |
-| ADK session 数据库 | `database/session_database/session_database.db` | ADK session、event、state。 |
+| 业务数据库 | `var/database/database.db` | 用户、验证码、邀请码、会话管理等 SQLAlchemy 表。 |
+| ADK session 数据库 | `var/database/session_database/session_database.db` | ADK session、event、state。 |
 
 业务数据库由 `server/database.py` 和 `server/models.py` 管理。
 
@@ -105,7 +109,7 @@ ADK session 数据库由 `DatabaseSessionService` 管理。系统对 session 写
 artifact_service = InMemoryArtifactService()
 ```
 
-这意味着 artifact 二进制先保存在进程内存中。runtime 执行完 expert 后，会把 artifact 从 `ArtifactService` 读取出来，再落盘到 `outputs/images`。
+这意味着 artifact 二进制先保存在进程内存中。runtime 执行完 expert 后，会把 artifact 从 `ArtifactService` 读取出来，再落盘到 `var/outputs/images`。对外 URL 仍保持 `/outputs/...`。
 
 这个设计对本地开发简单，但有几个 review 点：
 
@@ -321,7 +325,7 @@ Manim CE 渲染在临时目录中执行 `manim`，因此 `RenderAgent` 会给子
 上传文件会先保存到：
 
 ```text
-outputs/uploads
+var/outputs/uploads
 ```
 
 随后写入 `input_artifacts` 并保存到 ADK artifact service。
@@ -361,13 +365,13 @@ outputs/uploads
 Executor 会把 artifact service 中的二进制保存到：
 
 ```text
-outputs/images
+var/outputs/images
 ```
 
 manimgl 预览片段和最终预览视频会保存到：
 
 ```text
-outputs/videos/math_video_preview
+var/outputs/videos/math_video_preview
 ```
 
 ## 11. 当前 Review 重点
@@ -381,7 +385,7 @@ outputs/videos/math_video_preview
 可选方向：
 
 - 使用持久化 artifact service。
-- 或者把 `outputs/` 落盘文件作为下载源，artifact service 只做本轮执行传递。
+- 或者把 `var/outputs/` 落盘文件作为下载源，artifact service 只做本轮执行传递。
 
 ### 11.2 state 协议缺少显式 schema
 

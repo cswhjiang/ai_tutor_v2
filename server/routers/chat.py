@@ -18,7 +18,7 @@ from src.agents.executor.executor_agent import AgentInvocationService
 from conf.system import SYS_CONFIG
 from src.logger import logger
 from src.context import username_context
-from src.media.output_urls import outputs_static_url
+from src.media.output_urls import OUTPUTS_ROOT, OUTPUTS_URL_PREFIX, outputs_static_url
 from src.observability.timing import make_trace_id, log_timing_event, timing_stage
 from src.streaming.app_events import (
     register_app_event_queue,
@@ -31,8 +31,8 @@ from src.utils import database_op_with_retry
 router = APIRouter()
 
 # --- 静态文件服务设置 ---
-outputs_dir_name = "outputs"
-outputs_path = Path(SYS_CONFIG.base_dir) / outputs_dir_name
+outputs_dir_name = OUTPUTS_URL_PREFIX.strip("/")
+outputs_path = OUTPUTS_ROOT
 outputs_path.mkdir(parents=True, exist_ok=True)
 # 在output下创建images， videos， uploads目录
 # 来自不同session的文件会保存在相同的文件夹，但是通过文件名中包含session id来区分

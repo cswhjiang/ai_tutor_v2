@@ -16,7 +16,7 @@ from typing import Iterable
 
 import requests
 
-from conf.system import SYS_CONFIG
+from src.media.output_urls import OUTPUTS_ROOT
 from src.logger import logger
 
 
@@ -112,7 +112,7 @@ class VolcengineTTSService:
     @staticmethod
     def default_cache_dir() -> Path:
         """Return the default TTS cache directory for ManimGL math videos."""
-        return Path(SYS_CONFIG.base_dir) / "outputs" / "tts_cache" / "math_video_manimgl"
+        return OUTPUTS_ROOT / "tts_cache" / "math_video_manimgl"
 
     @classmethod
     def has_credentials(cls) -> bool:

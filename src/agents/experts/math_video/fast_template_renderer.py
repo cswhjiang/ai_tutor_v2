@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from conf.system import SYS_CONFIG
+from src.media.output_urls import OUTPUTS_ROOT
 from src.logger import logger
 
 
@@ -313,7 +313,7 @@ async def _maybe_generate_voiceover_audio(
         logger.warning("Fast math video voiceover skipped because ffmpeg/ffprobe is unavailable.")
         return None, None
 
-    cache_dir = Path(SYS_CONFIG.base_dir) / "outputs" / "tts_cache" / "math_video_fast"
+    cache_dir = OUTPUTS_ROOT / "tts_cache" / "math_video_fast"
     cache_dir.mkdir(parents=True, exist_ok=True)
     try:
         audio_paths = await asyncio.gather(

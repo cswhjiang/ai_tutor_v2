@@ -21,8 +21,8 @@
 - `src/agents/experts/math_video/fast_template_renderer.py`
 - `src/agents/experts/math_video/math_video_generation_agent.py`
 - `src/llm/model_factory.py`
-- `test_manim/test_fast_template_renderer.py`
-- `test_adk/test_model_factory.py`
+- `tests/math_video/test_fast_template_renderer.py`
+- `tests/adk/test_model_factory.py`
 
 核心变化：
 
@@ -77,9 +77,9 @@
 建议验证命令：
 
 ```bash
-python -m pytest test_manim/test_fast_template_renderer.py
-python -m pytest test_manim/test_fast_math_video_agent.py test_manim/test_render_agent.py
-python -m pytest test_adk/test_model_factory.py
+python -m pytest tests/math_video/test_fast_template_renderer.py
+python -m pytest tests/math_video/test_fast_math_video_agent.py tests/math_video/test_render_agent.py
+python -m pytest tests/adk/test_model_factory.py
 python -m py_compile src/llm/model_factory.py src/agents/experts/math_video/fast_template_renderer.py src/agents/experts/math_video/fast_math_video_agent.py src/agents/experts/math_video/math_video_generation_agent.py
 ```
 
