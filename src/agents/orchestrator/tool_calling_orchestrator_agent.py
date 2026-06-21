@@ -12,6 +12,7 @@ from google.genai.types import Content, Part
 
 from conf.system import SYS_CONFIG
 from src.agents.experts.math_video.math_video_generation_agent import math_video_generation_agent
+from src.agents.experts.math_video.routes import resolve_math_video_route
 from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
 from src.observability.timing import compact_text, timing_context_from_invocation, timing_stage
@@ -56,27 +57,29 @@ def _parse_math_video_tool_request(request_text: str) -> Dict[str, Any]:
     """Parse the AgentTool request string into math video parameters."""
     request_text = request_text.strip()
     if not request_text:
-        return {"prompt": "", "math_video_mode": "legacy"}
+        return {"prompt": "", "math_video_mode": None}
 
     try:
         data = json.loads(request_text)
     except json.JSONDecodeError:
-        return {"prompt": request_text, "math_video_mode": "legacy"}
+        return {"prompt": request_text, "math_video_mode": None}
 
     if isinstance(data, dict) and set(data) == {"request"}:
         nested_request = str(data.get("request") or "").strip()
         try:
             nested_data = json.loads(nested_request)
         except json.JSONDecodeError:
-            return {"prompt": nested_request, "math_video_mode": "legacy"}
+            return {"prompt": nested_request, "math_video_mode": None}
         if isinstance(nested_data, dict):
             data = nested_data
 
     if not isinstance(data, dict):
-        return {"prompt": str(data), "math_video_mode": "legacy"}
+        return {"prompt": str(data), "math_video_mode": None}
 
     prompt = str(data.get("prompt") or data.get("request") or request_text)
-    mode = str(data.get("math_video_mode") or "legacy")
+    mode = data.get("math_video_mode")
+    if mode is None:
+        mode = data.get("math_video_route")
     return {"prompt": prompt, "math_video_mode": mode}
 
 
@@ -92,7 +95,7 @@ class MathVideoToolAgent(BaseAgent):
             name="generate_math_video",
             description=(
                 "Generate a math explanation video. The request must be a JSON "
-                "string with fields: prompt, math_video_mode. Use legacy mode by default."
+                "string with field prompt and optional field math_video_mode."
             ),
             math_video_agent=math_video_agent,
         )
@@ -110,6 +113,25 @@ class MathVideoToolAgent(BaseAgent):
                 "current_info": history_context if history_context else "null",
                 "math_video_mode": request["math_video_mode"],
             }
+            try:
+                route = resolve_math_video_route(parameters)
+            except ValueError as exc:
+                message = str(exc)
+                current_output = {
+                    "author": self.name,
+                    "status": "error",
+                    "message": message,
+                    "message_for_user": "视频生成失败：不支持的生成路线。",
+                    "output_text": "",
+                }
+                logger.error(message)
+                yield Event(
+                    author=self.name,
+                    content=Content(role="model", parts=[Part(text=message)]),
+                    actions=EventActions(state_delta={"current_output": current_output}),
+                )
+                return
+            parameters["math_video_mode"] = route
             tool_timing["mode"] = parameters["math_video_mode"]
             tool_timing["prompt_chars"] = len(parameters["prompt"])
             logger.info(
@@ -229,10 +251,14 @@ DIRECT_ORCHESTRATOR_INSTRUCTION = """
 - 不要生成 single plan。
 - 不要把任务拆给多个外层 agent。
 - 当用户要求“讲解数学题并生成视频”、"做个视频讲解"、"数学讲解视频" 或类似请求时，必须调用 `generate_math_video` 工具。
-- 调用 `generate_math_video` 时，`request` 必须是 JSON 字符串，包含 `prompt` 和 `math_video_mode` 两个字段。
+- 调用 `generate_math_video` 时，`request` 必须是 JSON 字符串，包含 `prompt` 字段；`math_video_mode` 是可选字段。
 - `prompt` 必须保留用户的完整题目和视频要求。
-- 默认 `math_video_mode` 使用 `"legacy"`，只有用户明确要求快速生成时才使用 `"fast"`。
+- 默认路线由系统配置控制。用户没有明确要求路线时，不要强行指定 `math_video_mode`。
+- 只有用户明确要求某条路线时才传 `math_video_mode`，可选值是 `"manimce"`、`"fast"`、`"manimgl"`。
+- 当前阶段不要自行切换生成路线，也不要做自动 fallback；如果工具失败，不要改用另一条路线重新调用。
+- 每条用户请求最多主动调用一次 `generate_math_video`。除非用户在新的消息里明确要求重试，否则不要重复调用。
 - 不要先自行解题再决定是否调用工具；需要视频时直接调用工具。
 - 工具成功返回后，用简短中文告诉用户任务完成即可，不要暴露内部工具名、agent 名称或实现细节。
+- 工具失败返回后，必须忠实告诉用户视频生成失败，并简短反馈工具返回的失败原因；不要把失败结果说成完成。
 - 如果用户请求不是数学视频任务，可以直接回答简单问题；如果任务当前不支持，简短说明当前版本主要支持数学讲解视频生成。
 """

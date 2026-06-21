@@ -35,7 +35,9 @@ class SystemConfig(BaseModel):
     """
 
     llm_model: str
-    plan_critic_iter_num: int
+    math_video_generation_route: str = "manimce"
+    manimgl_project_path: str | None = None
+    manimgl_render_quality: str = "low"
     openai_reasoning_effort: str | None = "low"
     gemini_thinking_level: str = "LOW"
     gemini_thinking_budget: int | None = None
@@ -75,6 +77,28 @@ class SystemConfig(BaseModel):
     def normalize_gemini_thinking_level(cls, value: str) -> str:
         """Normalize Gemini thinking level so config is case-insensitive."""
         return value.strip().upper()
+
+    @field_validator("math_video_generation_route", mode="before")
+    @classmethod
+    def normalize_math_video_generation_route(cls, value: str | None) -> str:
+        """Normalize and validate the configured math-video generation route."""
+        route = (value or "manimce").strip().lower()
+        if route not in {"manimce", "fast", "manimgl"}:
+            raise ValueError(
+                "math_video_generation_route must be one of: manimce, fast, manimgl"
+            )
+        return route
+
+    @field_validator("manimgl_render_quality", mode="before")
+    @classmethod
+    def normalize_manimgl_render_quality(cls, value: str | None) -> str:
+        """Normalize ManimGL render quality names."""
+        quality = (value or "low").strip().lower()
+        if quality not in {"low", "medium", "high", "production"}:
+            raise ValueError(
+                "manimgl_render_quality must be one of: low, medium, high, production"
+            )
+        return quality
 
 def load_system_config(config_file_path: str) -> SystemConfig:
     """

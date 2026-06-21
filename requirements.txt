@@ -29,6 +29,34 @@ defusedxml
 pypandoc
 python-pptx
 manim
+# ManimGL local reference runtime dependencies.
+addict
+appdirs
+audioop-lts; python_version >= "3.13"
+colour
+diskcache
+fontTools
+isosurfaces
+manimpango>=0.6.0
+mapbox-earcut
+moderngl
+moderngl_window
+pydub
+pygments
+PyOpenGL
+pyperclip
+pywavefront
+pyyaml
+rich
+scipy
+screeninfo
+setuptools
+skia-pathops
+svgelements>=1.8.1
+sympy
+tqdm
+trimesh
+validators
 matplotlib
 imageio
 imageio-ffmpeg

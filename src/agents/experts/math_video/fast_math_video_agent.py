@@ -26,7 +26,7 @@ def _truthy(value: object) -> bool:
 
 def should_use_fast_math_video(current_parameters: dict) -> bool:
     """Return True only when the caller explicitly requests the fast video path."""
-    if _truthy(current_parameters.get("use_legacy", False)):
+    if _truthy(current_parameters.get("use_manimce", False)):
         return False
 
     mode = str(current_parameters.get("math_video_mode", "")).strip().lower()
@@ -73,14 +73,14 @@ class FastMathVideoGenerationAgent(BaseAgent):
     model_config = {"arbitrary_types_allowed": True}
 
     llm: LlmAgent
-    legacy_agent: BaseAgent | None = None
+    manimce_agent: BaseAgent | None = None
 
     def __init__(
         self,
         name: str,
         description: str = "",
         llm_model: str = "",
-        legacy_agent: BaseAgent | None = None,
+        manimce_agent: BaseAgent | None = None,
     ):
         if not llm_model:
             llm_model = SYS_CONFIG.llm_model
@@ -108,7 +108,7 @@ class FastMathVideoGenerationAgent(BaseAgent):
             name=name,
             description=description,
             llm=llm,
-            legacy_agent=legacy_agent,
+            manimce_agent=manimce_agent,
         )
 
     def format_event(self, content_text: str = None, state_delta: Dict = None):
@@ -120,26 +120,26 @@ class FastMathVideoGenerationAgent(BaseAgent):
             event.content = Content(role="model", parts=[Part(text=content_text)])
         return event
 
-    async def _run_legacy(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+    async def _run_manimce(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Run the multi-agent Manim-code pipeline."""
-        if self.legacy_agent is None:
+        if self.manimce_agent is None:
             current_output = {
                 "author": self.name,
                 "status": "error",
-                "message": "Legacy math video pipeline is not configured.",
-                "message_for_user": "旧版视频生成流程不可用。",
+                "message": "Manim CE math video pipeline is not configured.",
+                "message_for_user": "Manim CE 视频生成流程不可用。",
                 "output_text": "",
             }
             yield self.format_event(
-                "Legacy math video pipeline is not configured.",
+                "Manim CE math video pipeline is not configured.",
                 {"current_output": current_output},
             )
             return
-        async for event in self.legacy_agent.run_async(ctx):
+        async for event in self.manimce_agent.run_async(ctx):
             yield event
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        """Run legacy by default, with the fast path available by explicit request."""
+        """Run Manim CE by default, with the fast path available by explicit request."""
         current_parameters = ctx.session.state.get("current_parameters", {})
         if "prompt" not in current_parameters:
             error_text = f"提供给{self.name}的参数缺失，必须包含：prompt"
@@ -155,7 +155,7 @@ class FastMathVideoGenerationAgent(BaseAgent):
             return
 
         if not should_use_fast_math_video(current_parameters):
-            async for event in self._run_legacy(ctx):
+            async for event in self._run_manimce(ctx):
                 yield event
             return
 

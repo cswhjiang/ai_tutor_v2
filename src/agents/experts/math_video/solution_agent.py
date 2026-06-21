@@ -116,7 +116,7 @@ class SolutionAgent(BaseAgent):
             "agent",
             self.name,
             **timing_context,
-            metadata={"mode": "legacy_math_video"},
+            metadata={"mode": "manimce_math_video"},
         ) as agent_timing:
             text_list = []
             with timing_stage(

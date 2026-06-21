@@ -45,7 +45,6 @@ flowchart TD
 | `server/agents_manager.py` | 初始化 ADK session/artifact service，注册 expert agents 和对应 runner。 |
 | `server/utils/common.py` | 初始化 session state，处理上传文档转 Markdown 和 artifact 写入。 |
 | `src/agents/orchestrator/tool_calling_orchestrator_agent.py` | 当前主链路 Orchestrator，使用 AgentTool 调用数学视频生成。 |
-| `src/agents/orchestrator/orchestrator_agent.py` | 旧规划层，保留为兼容代码，可生成全局规划和单步规划。 |
 | `src/agents/executor/executor_agent.py` | 运行时执行层，主类为 `AgentInvocationService`；`Executor` 仅作为旧链路兼容 alias。 |
 | `src/agents/experts/` | 各类专家 agent，实现搜索、图片理解、数学视频、PPT、文章等能力。 |
 | `src/llm/model_factory.py` | ADK 模型适配层，统一 Gemini / LiteLLM 模型构造和 JSON 响应配置。 |
@@ -152,21 +151,7 @@ artifact_service = InMemoryArtifactService()
 6. `/chat` 在父 Runner 完成后调用 runtime 持久化输出。
 7. `Orchestrator` 基于工具返回做简短总结。
 
-旧的 `src/agents/orchestrator/orchestrator_agent.py` 仍保留为兼容代码。它的职责是生成规划，内部包含：
-
-- `PlannerAgent`：输出 JSON 规划。
-- `CriticAgent`：在 `plan_critic_iter_num > 0` 时检查规划。
-- `StopChecker`：根据 critic 输出判断 roleplay 是否停止。
-
-当前 `conf/jsons/system.json` 中：
-
-```json
-"plan_critic_iter_num": 0
-```
-
-所以旧规划链路默认情况下不启用 planner/critic 多轮优化，主要是单次 planner 输出。
-
-一个重要设计是 `internal=True`：Orchestrator 会复制主 session 到内部 session，在内部 session 中完成规划对话，避免 planner/critic 的中间过程污染主 session。最终只把 `global_plan` 或 `current_plan` 写回主 session。
+旧的 plan-based Orchestrator 已移除。系统不再保留 `PlannerAgent` / `CriticAgent` 的规划链路，也不再读取 `plan_critic_iter_num`。当前阶段 Orchestrator 作为统一入口，只负责判断是否调用工具，并把工具结果忠实反馈给用户。
 
 ### 5.2 Runtime
 
@@ -231,22 +216,22 @@ expert agent 通过 ADK `EventActions(state_delta=...)` 写入 `state.current_ou
 
 数学视频是当前系统里最复杂的 expert 之一。
 
-### 7.1 默认 legacy 链路
+### 7.1 Manim CE 四段式链路
 
-当前 `MathVideoGenerationAgent` 通过 `FastMathVideoGenerationAgent` 做路由包装，但默认执行 legacy 四段式链路。
+当前 `MathVideoGenerationAgent` 通过路由 Agent 选择具体实现。`manimce` 表示 Manim CE 四段式链路。
 
-legacy 链路保留为 `legacy_math_video_generation_agent`，由 `SequentialAgent` 串联：
+`manimce_math_video_generation_agent` 由 `SequentialAgent` 串联：
 
 1. `SolutionAgent`
 2. `ShotAgent`
 3. `CodeGenerationAgent`
 4. `RenderAgent`
 
-默认或显式指定以下参数时走 legacy：
+显式指定以下参数时走 Manim CE 四段式链路：
 
 ```json
 {
-  "math_video_mode": "legacy"
+  "math_video_mode": "manimce"
 }
 ```
 
@@ -254,11 +239,11 @@ legacy 链路保留为 `legacy_math_video_generation_agent`，由 `SequentialAge
 
 ```json
 {
-  "use_legacy": true
+  "use_manimce": true
 }
 ```
 
-legacy 链路中，`CodeGenerationAgent` 的 prompt 会要求 LLM 生成完整 Manim 代码，再由 `RenderAgent` 在临时目录中执行 `manim -ql`。
+Manim CE 四段式链路中，`CodeGenerationAgent` 的 prompt 会要求 LLM 生成完整 Manim 代码，再由 `RenderAgent` 在临时目录中执行 `manim -ql`。
 
 ### 7.2 可选快速链路
 
@@ -310,9 +295,9 @@ src/local_manim_voiceover_services/bytedance.py
 
 它继承第三方包 `manim_voiceover.services.base.SpeechService`，实现火山引擎 TTS。
 
-当前 fast 和 legacy 都统一使用项目内路径：`src.local_manim_voiceover_services.bytedance`。
+当前 fast 和 Manim CE 四段式链路都统一使用项目内路径：`src.local_manim_voiceover_services.bytedance`。
 
-legacy 渲染在临时目录中执行 `manim`，因此 `RenderAgent` 会给子进程补充项目根目录到 `PYTHONPATH`，并在渲染前把旧的 `manim_voiceover.services.bytedance` import 防御性改写为项目内 import。
+Manim CE 渲染在临时目录中执行 `manim`，因此 `RenderAgent` 会给子进程补充项目根目录到 `PYTHONPATH`，并在渲染前把 `manim_voiceover.services.bytedance` import 防御性改写为项目内 import。
 
 ## 8. 模型与配置层
 
@@ -372,6 +357,8 @@ outputs/uploads
 `/chat` 返回 SSE，事件类型包括：
 
 - `step`：中间过程消息。
+- `assistant_delta` / `assistant_message`：Orchestrator 面向用户的流式文本。
+- `video_preview`：视频生成中的可播放预览。当前 manimgl 路线会在 partial mp4 完成时推送片段 URL，最终 mp4 完成时推送完整版 URL。
 - `error`：工作流错误。
 - `final`：最终结果。
 
@@ -382,11 +369,12 @@ outputs/uploads
   "text": "整体总结",
   "final_output_text": "详细文本输出",
   "image": ["data:mime;base64,..."],
+  "video_urls": ["/outputs/videos/.../final.mp4"],
   "filenames": ["可下载文件名"]
 }
 ```
 
-命名上 `image` 实际也可能包含视频等媒体的 base64。代码里已有 TODO 提到这一点。
+命名上 `image` 仍保留历史兼容，主要用于 base64 媒体。视频优先通过 `video_urls` 返回，避免最终阶段重新 base64 编码大文件。
 
 Executor 会把 artifact service 中的二进制保存到：
 
@@ -394,7 +382,11 @@ Executor 会把 artifact service 中的二进制保存到：
 outputs/images
 ```
 
-当前 `outputs/videos` 目录存在，但注释说明暂未使用。
+manimgl 预览片段和最终预览视频会保存到：
+
+```text
+outputs/videos/math_video_preview
+```
 
 ## 11. 当前 Review 重点
 
@@ -435,9 +427,9 @@ outputs/images
 - AgentTool 的 request JSON 是否需要升级为 Pydantic input schema。
 - 是否需要补充单元测试覆盖 `execute_agent()` 的 artifact 保存和历史更新路径。
 
-### 11.4 数学视频的快速链路与 legacy 链路已统一 import 假设
+### 11.4 数学视频的快速链路与 Manim CE 链路已统一 import 假设
 
-当前 fast 和 legacy 都使用项目内 `ByteDanceService`，不再依赖复制文件到 `.venv`。
+当前 fast 和 Manim CE 四段式链路都使用项目内 `ByteDanceService`，不再依赖复制文件到 `.venv`。
 
 仍需后续 review 的是 TTS cache 目录和并发策略。
 

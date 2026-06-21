@@ -1,6 +1,6 @@
 import "./styles.css";
 import { API_BASE_URL, createSession, sendChatMessage } from "./api";
-import type { AgentEvent, ChatMessage, FinalContent } from "./types";
+import type { AgentEvent, ChatMessage, FinalContent, VideoPreviewContent } from "./types";
 
 const SAMPLE_PROMPT =
   "What is the percentage increase in the area of a triangle if the height of the triangle is decreased by 10% and its base is increased by 20%? 请做一个视频讲解。";
@@ -16,6 +16,10 @@ type AppState = {
   statusSteps: string[];
   statusExpanded: boolean;
   videos: string[];
+  previewSegments: VideoPreviewContent[];
+  previewFinalUrl: string | null;
+  previewFinalLabel: string;
+  previewCurrentIndex: number;
   filenames: string[];
   finalText: string;
 };
@@ -31,6 +35,10 @@ const state: AppState = {
   statusSteps: [],
   statusExpanded: false,
   videos: [],
+  previewSegments: [],
+  previewFinalUrl: null,
+  previewFinalLabel: "",
+  previewCurrentIndex: 0,
   filenames: [],
   finalText: "",
 };
@@ -53,6 +61,16 @@ app.innerHTML = `
     </header>
 
     <section class="messages" id="messages" aria-live="polite"></section>
+
+    <section class="live-preview" id="livePreview" hidden>
+      <div class="live-preview-header">
+        <div>
+          <h2 id="livePreviewTitle">正在生成视频</h2>
+          <p id="livePreviewMeta">等待第一个可播放片段</p>
+        </div>
+      </div>
+      <video id="livePreviewVideo" controls playsinline></video>
+    </section>
 
     <form class="composer" id="chatForm">
       <textarea
@@ -79,6 +97,10 @@ app.innerHTML = `
 `;
 
 const messagesEl = mustGet<HTMLDivElement>("messages");
+const livePreviewEl = mustGet<HTMLElement>("livePreview");
+const livePreviewTitleEl = mustGet<HTMLHeadingElement>("livePreviewTitle");
+const livePreviewMetaEl = mustGet<HTMLParagraphElement>("livePreviewMeta");
+const livePreviewVideoEl = mustGet<HTMLVideoElement>("livePreviewVideo");
 const connectionStatusEl = mustGet<HTMLDivElement>("connectionStatus");
 const chatForm = mustGet<HTMLFormElement>("chatForm");
 const promptInput = mustGet<HTMLTextAreaElement>("promptInput");
@@ -90,6 +112,17 @@ const sampleButton = mustGet<HTMLButtonElement>("sampleButton");
 sampleButton.addEventListener("click", () => {
   promptInput.value = SAMPLE_PROMPT;
   promptInput.focus();
+});
+
+livePreviewVideoEl.addEventListener("ended", () => {
+  if (state.previewFinalUrl) {
+    return;
+  }
+  if (state.previewCurrentIndex + 1 >= state.previewSegments.length) {
+    return;
+  }
+  state.previewCurrentIndex += 1;
+  updateLivePreview();
 });
 
 chatForm.addEventListener("submit", (event) => {
@@ -149,8 +182,13 @@ async function handleSubmit(): Promise<void> {
   state.activeAssistantMessageId = null;
   state.assistantStreamedThisTurn = false;
   state.videos = [];
+  state.previewSegments = [];
+  state.previewFinalUrl = null;
+  state.previewFinalLabel = "";
+  state.previewCurrentIndex = 0;
   state.filenames = [];
   state.finalText = "";
+  updateLivePreview();
   addMessage("user", message);
   promptInput.value = "";
   imageInput.value = "";
@@ -198,6 +236,11 @@ function handleAgentEvent(event: AgentEvent): void {
     return;
   }
 
+  if (event.type === "video_preview") {
+    handleVideoPreview(event.content);
+    return;
+  }
+
   handleFinalContent(event.content);
 }
 
@@ -211,8 +254,93 @@ function handleFinalContent(content: FinalContent): void {
 
   state.finalText = content.final_output_text || "";
   state.filenames = content.filenames || [];
-  state.videos = (content.image || []).filter((item) => item.startsWith("data:video/"));
+  const videoUrls = (content.video_urls || []).map(resolveMediaUrl);
+  const encodedVideos = (content.image || []).filter((item) => item.startsWith("data:video/"));
+  state.videos = [...videoUrls, ...encodedVideos];
+  if (videoUrls[0] && !state.previewFinalUrl) {
+    state.previewFinalUrl = videoUrls[0];
+    state.previewFinalLabel = "完整视频";
+    updateLivePreview();
+  }
   render();
+}
+
+function handleVideoPreview(content: VideoPreviewContent): void {
+  const normalizedContent = {
+    ...content,
+    url: resolveMediaUrl(content.url),
+  };
+
+  if (normalizedContent.status === "final") {
+    state.previewFinalUrl = normalizedContent.url;
+    state.previewFinalLabel = normalizedContent.label || "完整视频";
+    updateLivePreview();
+    return;
+  }
+
+  const exists = state.previewSegments.some(
+    (segment) => segment.url === normalizedContent.url,
+  );
+  if (!exists) {
+    state.previewSegments.push(normalizedContent);
+    state.previewSegments.sort(
+      (left, right) => (left.sequence ?? 0) - (right.sequence ?? 0),
+    );
+  }
+
+  if (
+    livePreviewVideoEl.ended &&
+    state.previewCurrentIndex + 1 < state.previewSegments.length
+  ) {
+    state.previewCurrentIndex += 1;
+  }
+  updateLivePreview();
+}
+
+function updateLivePreview(): void {
+  if (!state.previewFinalUrl && !state.previewSegments.length) {
+    livePreviewEl.hidden = true;
+    livePreviewVideoEl.removeAttribute("src");
+    livePreviewVideoEl.dataset.currentUrl = "";
+    livePreviewVideoEl.load();
+    return;
+  }
+
+  livePreviewEl.hidden = false;
+  if (state.previewFinalUrl) {
+    livePreviewTitleEl.textContent = state.previewFinalLabel || "完整视频已生成";
+    livePreviewMetaEl.textContent = "最终视频已就绪，可以播放带声音版本。";
+    setLivePreviewSource(state.previewFinalUrl, false);
+    return;
+  }
+
+  if (state.previewCurrentIndex >= state.previewSegments.length) {
+    state.previewCurrentIndex = Math.max(0, state.previewSegments.length - 1);
+  }
+
+  const currentSegment = state.previewSegments[state.previewCurrentIndex];
+  livePreviewTitleEl.textContent = "正在生成视频";
+  livePreviewMetaEl.textContent = `${state.previewSegments.length} 个片段已生成 · 正在预览第 ${
+    state.previewCurrentIndex + 1
+  } 个`;
+  setLivePreviewSource(currentSegment.url, true);
+}
+
+function setLivePreviewSource(source: string, mutedAutoplay: boolean): void {
+  if (livePreviewVideoEl.dataset.currentUrl === source) {
+    return;
+  }
+
+  livePreviewVideoEl.dataset.currentUrl = source;
+  livePreviewVideoEl.src = source;
+  livePreviewVideoEl.muted = mutedAutoplay;
+  livePreviewVideoEl.controls = true;
+
+  if (mutedAutoplay) {
+    void livePreviewVideoEl.play().catch(() => {
+      // Browser autoplay policies may require a user gesture.
+    });
+  }
 }
 
 function addStatusStep(text: string): void {
@@ -318,6 +446,7 @@ function setConnectionStatus(label: string): void {
 
 function render(): void {
   renderMessages();
+  updateLivePreview();
   sendButton.textContent = state.busy ? "处理中" : "发送";
 }
 
@@ -492,4 +621,14 @@ function mustGet<T extends HTMLElement>(id: string): T {
 
 function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveMediaUrl(url: string): string {
+  if (url.startsWith("data:") || /^https?:\/\//i.test(url)) {
+    return url;
+  }
+  if (url.startsWith("/")) {
+    return `${API_BASE_URL}${url}`;
+  }
+  return `${API_BASE_URL}/${url}`;
 }

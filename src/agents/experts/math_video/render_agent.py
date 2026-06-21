@@ -38,7 +38,7 @@ MANIM_ANIMATION_RE = re.compile(r"Animation\s+\d+")
 
 
 def normalize_manim_voiceover_imports(manim_code: str) -> str:
-    """Rewrite legacy generated imports to use the project-local voiceover service."""
+    """Rewrite generated imports to use the project-local voiceover service."""
     return manim_code.replace(LEGACY_BYTEDANCE_IMPORT, LOCAL_BYTEDANCE_IMPORT)
 
 
@@ -205,7 +205,7 @@ class RenderAgent(BaseAgent):
             "agent",
             self.name,
             **timing_context,
-            metadata={"mode": "legacy_math_video"},
+            metadata={"mode": "manimce_math_video"},
         ) as agent_timing:
             current_parameters = ctx.session.state.get('current_parameters', {})
             manim_result_by_agent = ctx.session.state.get('math_video/manim_code', '') # 来自html_generation的结果
@@ -299,5 +299,4 @@ class RenderAgent(BaseAgent):
             }
             yield self.format_event(text, {'current_output': current_output})
             return
-
 

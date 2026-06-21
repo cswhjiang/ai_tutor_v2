@@ -24,10 +24,24 @@ export type AssistantMessageEvent = {
   content: string;
 };
 
+export type VideoPreviewContent = {
+  url: string;
+  status: "segment" | "final";
+  sequence?: number;
+  label?: string;
+  mime_type?: string;
+};
+
+export type VideoPreviewEvent = {
+  type: "video_preview";
+  content: VideoPreviewContent;
+};
+
 export type FinalContent = {
   text?: string | null;
   final_output_text?: string | null;
   image?: string[];
+  video_urls?: string[];
   filenames?: string[];
 };
 
@@ -41,6 +55,7 @@ export type AgentEvent =
   | ErrorEvent
   | AssistantDeltaEvent
   | AssistantMessageEvent
+  | VideoPreviewEvent
   | FinalEvent;
 
 export type ChatMessage = {

@@ -3,38 +3,36 @@
   "openai_reasoning_effort": "medium", //low / medium / high
   "gemini_thinking_level": "medium", // LOW / MEDIUM / HIGH / MINIMAL
   "gemini_thinking_budget": null,
-  "plan_critic_iter_num": 0,
+  "math_video_generation_route": "manimgl", // manimce / fast / manimgl
+  "manimgl_project_path": "../reference-projects/manim",
+  "manimgl_render_quality": "low", // low / medium / high / production
   "agent_llm_configs": {
     "OrchestratorAgent": {
       "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "low"
-    },
-    "PlannerAgent": {
-      "llm_model": "gemini/gemini-3.5-flash",
-      "reasoning_level": "medium"
-    },
-    "CriticAgent": {
-      "llm_model": "gemini/gemini-3.5-flash",
-      "reasoning_level": "medium"
     },
     "FastMathVideoGenerationAgent": {
       "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "low"
     },
     "SolutionAgent": {
-      "llm_model": "openai/gpt-5.5",
+      "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "medium"
     },
     "ShotAgent": {
-      "llm_model": "openai/gpt-5.5",
+      "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "medium"
     },
     "CodeGenerationAgent": {
-      "llm_model": "openai/gpt-5.5",
+      "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "high"
     },
+    "ManimGLCodeGenerationAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "medium"
+    },
     "HTMLGenerationAgent": {
-      "llm_model": "gemini/gemini-3.1-pro-preview",
+      "llm_model": "gemini/gemini-3.5-flash",
       "reasoning_level": "medium"
     },
     "ScienceAgent": {

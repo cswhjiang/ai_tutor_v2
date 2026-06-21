@@ -66,11 +66,11 @@ def test_build_history_context_returns_empty_without_history():
 
 
 def test_parse_math_video_tool_request_accepts_json_payload():
-    request = '{"prompt": "2点后时针分针何时重合？", "math_video_mode": "legacy"}'
+    request = '{"prompt": "2点后时针分针何时重合？", "math_video_mode": "manimce"}'
 
     assert _parse_math_video_tool_request(request) == {
         "prompt": "2点后时针分针何时重合？",
-        "math_video_mode": "legacy",
+        "math_video_mode": "manimce",
     }
 
 
@@ -83,10 +83,10 @@ def test_parse_math_video_tool_request_accepts_nested_agenttool_request():
     }
 
 
-def test_parse_math_video_tool_request_falls_back_to_legacy_prompt():
+def test_parse_math_video_tool_request_falls_back_to_configured_route():
     assert _parse_math_video_tool_request("直接生成视频") == {
         "prompt": "直接生成视频",
-        "math_video_mode": "legacy",
+        "math_video_mode": None,
     }
 
 
@@ -122,7 +122,7 @@ def test_math_video_tool_agent_sets_current_parameters_and_output():
                 "request": json.dumps(
                     {
                         "prompt": "测试题目",
-                        "math_video_mode": "legacy",
+                        "math_video_mode": "manimce",
                     }
                 )
             }
@@ -143,7 +143,7 @@ def test_math_video_tool_agent_sets_current_parameters_and_output():
             "prompt": "测试题目",
             "input_img_name": ["diagram.png"],
             "current_info": "null",
-            "math_video_mode": "legacy",
+            "math_video_mode": "manimce",
         }
         assert session.state["current_output"]["status"] == "success"
         assert session.state["latest_tool_output_ready"] is True

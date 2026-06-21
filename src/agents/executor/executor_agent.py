@@ -340,7 +340,7 @@ class AgentInvocationService:
     ) -> Dict[str, Any]:
         """Run one expert agent directly and persist its output into session state.
 
-        This is the reusable runtime path for both the legacy plan-based executor
+        This is the reusable runtime path for both the plan-based executor
         and the new tool-calling orchestrator. It writes `current_parameters`,
         invokes the target agent runner, saves generated artifacts to disk, and
         appends execution history back to the shared session.
@@ -499,5 +499,5 @@ class AgentInvocationService:
         )
 
 
-# Backward-compatible alias for the legacy plan-based route.
+# Backward-compatible alias for the plan-based route.
 Executor = AgentInvocationService

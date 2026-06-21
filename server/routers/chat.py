@@ -1,4 +1,6 @@
-from typing import List, Optional
+import asyncio
+from contextlib import suppress
+from typing import Any, List, Optional
 from pathlib import Path
 import time
 import uuid
@@ -16,7 +18,12 @@ from src.agents.executor.executor_agent import AgentInvocationService
 from conf.system import SYS_CONFIG
 from src.logger import logger
 from src.context import username_context
+from src.media.output_urls import outputs_static_url
 from src.observability.timing import make_trace_id, log_timing_event, timing_stage
+from src.streaming.app_events import (
+    register_app_event_queue,
+    unregister_app_event_queue,
+)
 from server.utils.util import (save_upload_file_sync, format_sse_event, current_time_str, encode_media,
                          SessionCreateResponse)
 from src.utils import database_op_with_retry
@@ -102,11 +109,41 @@ ALLOWED_DOC_MIME = {
 }
 
 ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".bmp"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
+RUNNER_DONE_EVENT_TYPE = "_runner_done"
 
 
 def _ext(name: str) -> str:
     name = (name or "").lower()
     return name[name.rfind("."):] if "." in name else ""
+
+
+def _video_preview_event_from_artifact(
+    artifact: dict[str, Any],
+    *,
+    status: str = "final",
+    sequence: int | None = None,
+) -> dict[str, Any] | None:
+    """Build a video preview SSE event from a persisted output artifact."""
+    artifact_path = artifact.get("path")
+    artifact_name = str(artifact.get("name") or "")
+    ext_name = _ext(str(artifact_path or artifact_name))
+    if ext_name not in VIDEO_EXTENSIONS or not artifact_path:
+        return None
+
+    url = outputs_static_url(artifact_path)
+    if not url:
+        return None
+
+    content: dict[str, Any] = {
+        "url": url,
+        "status": status,
+        "label": artifact_name or Path(artifact_path).name,
+        "mime_type": "video/mp4",
+    }
+    if sequence is not None:
+        content["sequence"] = sequence
+    return {"type": "video_preview", "content": content}
 
 
 @router.post("/chat")
@@ -308,17 +345,73 @@ async def chat_with_agent(
             uid=uid,
             sid=sid,
         ):
-            async for app_event in executor.stream_agent_events(
-                orchestrator_runner,
-                user_id=uid,
-                session_id=sid,
-                new_message=Content(
-                    role='user',
-                    parts=[Part(text=f"请处理用户最新任务：{message}")]
-                ),
-                trace_id=trace_id,
-            ):
-                yield format_sse_event(app_event)
+            app_event_queue = register_app_event_queue(trace_id)
+
+            async def pump_orchestrator_events() -> None:
+                """Forward ADK stream events into the app-level SSE queue."""
+                try:
+                    async for app_event in executor.stream_agent_events(
+                        orchestrator_runner,
+                        user_id=uid,
+                        session_id=sid,
+                        new_message=Content(
+                            role='user',
+                            parts=[Part(text=f"请处理用户最新任务：{message}")]
+                        ),
+                        trace_id=trace_id,
+                    ):
+                        await app_event_queue.put(app_event)
+                except Exception as exc:
+                    logger.error("Orchestrator stream failed: {}", exc, exc_info=True)
+                    await app_event_queue.put(
+                        {
+                            "type": "error",
+                            "content": f"Agent execution failed: {exc}",
+                        }
+                    )
+                    await app_event_queue.put(
+                        {
+                            "type": RUNNER_DONE_EVENT_TYPE,
+                            "status": "error",
+                            "error": str(exc),
+                        }
+                    )
+                else:
+                    await app_event_queue.put(
+                        {"type": RUNNER_DONE_EVENT_TYPE, "status": "success"}
+                    )
+
+            runner_task = asyncio.create_task(pump_orchestrator_events())
+            runner_status = "success"
+            runner_error = ""
+            try:
+                while True:
+                    app_event = await app_event_queue.get()
+                    if app_event.get("type") == RUNNER_DONE_EVENT_TYPE:
+                        runner_status = str(app_event.get("status") or "success")
+                        runner_error = str(app_event.get("error") or "")
+                        break
+                    yield format_sse_event(app_event)
+            finally:
+                unregister_app_event_queue(trace_id)
+                if not runner_task.done():
+                    runner_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await runner_task
+
+            if runner_status != "success":
+                log_timing_event(
+                    event="stage_end",
+                    stage="http",
+                    name="chat_request",
+                    trace_id=trace_id,
+                    uid=uid,
+                    sid=sid,
+                    status="error",
+                    duration_ms=(time.perf_counter() - request_start) * 1000,
+                    metadata={"error": runner_error or "orchestrator_stream_failed"},
+                )
+                return
 
         final_summary = executor.latest_final_response_text
         if not final_summary:
@@ -353,6 +446,10 @@ async def chat_with_agent(
                 or current_output.get("message")
                 or final_summary
             )
+            for art in current_output.get("output_artifacts", []) or []:
+                preview_event = _video_preview_event_from_artifact(art, status="final")
+                if preview_event:
+                    yield format_sse_event(preview_event)
 
         with timing_stage(
             "storage",
@@ -401,15 +498,25 @@ async def chat_with_agent(
                 for art in final_art
             ],
         ) ## TypeError: expected str, bytes or os.PathLike object, not NoneType
+        final_video_urls = []
         with timing_stage(
             "postprocess",
-            "encode_final_media",
+            "prepare_final_media",
             trace_id=trace_id,
             uid=uid,
             sid=sid,
             metadata={"artifact_count": len(final_art)},
         ):
-            final_art_base64 = [encode_media(art['path']) for art in final_art]  # TODO: bug. NOTE: 需要判断支持视频
+            final_art_base64 = []
+            for art in final_art:
+                art_path = art.get("path")
+                ext_name = _ext(str(art_path or art.get("name") or ""))
+                if ext_name in VIDEO_EXTENSIONS:
+                    video_url = outputs_static_url(art_path) if art_path else None
+                    if video_url:
+                        final_video_urls.append(video_url)
+                    continue
+                final_art_base64.append(encode_media(art_path))
         final_art_base64 = [f for f in final_art_base64 if f is not None]
 
         # 返回的文本
@@ -435,6 +542,7 @@ async def chat_with_agent(
             "text": final_summary,  # 整个项目执行的总结
             "final_output_text": str(final_output_text) if final_output_text else None,
             "image": final_art_base64,
+            "video_urls": final_video_urls,
             "filenames": final_filenames,
         }
         log_timing_event(

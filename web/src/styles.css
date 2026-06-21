@@ -326,6 +326,42 @@ h1 {
   gap: 14px;
 }
 
+.live-preview {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 0 18px 14px;
+}
+
+.live-preview[hidden] {
+  display: none;
+}
+
+.live-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.live-preview h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.live-preview p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.live-preview video {
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
 .final-text {
   border-left: 3px solid var(--accent);
   padding: 4px 0 4px 12px;
