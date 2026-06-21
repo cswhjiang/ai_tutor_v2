@@ -20,6 +20,8 @@ type AppState = {
   previewFinalUrl: string | null;
   previewFinalLabel: string;
   previewCurrentIndex: number;
+  previewSoundEnabled: boolean;
+  previewAutoplayBlocked: boolean;
   filenames: string[];
   finalText: string;
 };
@@ -39,6 +41,8 @@ const state: AppState = {
   previewFinalUrl: null,
   previewFinalLabel: "",
   previewCurrentIndex: 0,
+  previewSoundEnabled: false,
+  previewAutoplayBlocked: false,
   filenames: [],
   finalText: "",
 };
@@ -68,6 +72,9 @@ app.innerHTML = `
           <h2 id="livePreviewTitle">正在生成视频</h2>
           <p id="livePreviewMeta">等待第一个可播放片段</p>
         </div>
+        <button id="previewSoundButton" class="preview-sound-button" type="button">
+          开启声音预览
+        </button>
       </div>
       <video id="livePreviewVideo" controls playsinline></video>
     </section>
@@ -101,6 +108,7 @@ const livePreviewEl = mustGet<HTMLElement>("livePreview");
 const livePreviewTitleEl = mustGet<HTMLHeadingElement>("livePreviewTitle");
 const livePreviewMetaEl = mustGet<HTMLParagraphElement>("livePreviewMeta");
 const livePreviewVideoEl = mustGet<HTMLVideoElement>("livePreviewVideo");
+const previewSoundButton = mustGet<HTMLButtonElement>("previewSoundButton");
 const connectionStatusEl = mustGet<HTMLDivElement>("connectionStatus");
 const chatForm = mustGet<HTMLFormElement>("chatForm");
 const promptInput = mustGet<HTMLTextAreaElement>("promptInput");
@@ -122,6 +130,14 @@ livePreviewVideoEl.addEventListener("ended", () => {
     return;
   }
   state.previewCurrentIndex += 1;
+  updateLivePreview();
+});
+
+previewSoundButton.addEventListener("click", () => {
+  state.previewSoundEnabled = true;
+  state.previewAutoplayBlocked = false;
+  livePreviewVideoEl.muted = false;
+  requestPreviewPlay();
   updateLivePreview();
 });
 
@@ -186,6 +202,7 @@ async function handleSubmit(): Promise<void> {
   state.previewFinalUrl = null;
   state.previewFinalLabel = "";
   state.previewCurrentIndex = 0;
+  state.previewAutoplayBlocked = false;
   state.filenames = [];
   state.finalText = "";
   updateLivePreview();
@@ -302,6 +319,7 @@ function updateLivePreview(): void {
     livePreviewEl.hidden = true;
     livePreviewVideoEl.removeAttribute("src");
     livePreviewVideoEl.dataset.currentUrl = "";
+    previewSoundButton.hidden = true;
     livePreviewVideoEl.load();
     return;
   }
@@ -310,6 +328,7 @@ function updateLivePreview(): void {
   if (state.previewFinalUrl) {
     livePreviewTitleEl.textContent = state.previewFinalLabel || "完整视频已生成";
     livePreviewMetaEl.textContent = "最终视频已就绪，可以播放带声音版本。";
+    previewSoundButton.hidden = true;
     setLivePreviewSource(state.previewFinalUrl, false);
     return;
   }
@@ -319,28 +338,53 @@ function updateLivePreview(): void {
   }
 
   const currentSegment = state.previewSegments[state.previewCurrentIndex];
+  previewSoundButton.hidden = false;
+  previewSoundButton.disabled =
+    state.previewSoundEnabled && !state.previewAutoplayBlocked;
+  previewSoundButton.textContent = state.previewAutoplayBlocked
+    ? "继续播放"
+    : state.previewSoundEnabled
+      ? "声音预览已开启"
+      : "开启声音预览";
   livePreviewTitleEl.textContent = "正在生成视频";
+  const autoplayStatus = state.previewAutoplayBlocked
+    ? " · 浏览器需要手动点击播放"
+    : "";
   livePreviewMetaEl.textContent = `${state.previewSegments.length} 个片段已生成 · 正在预览第 ${
     state.previewCurrentIndex + 1
-  } 个`;
-  setLivePreviewSource(currentSegment.url, true);
+  } 个${autoplayStatus}`;
+  setLivePreviewSource(currentSegment.url, state.previewSoundEnabled);
 }
 
-function setLivePreviewSource(source: string, mutedAutoplay: boolean): void {
+function setLivePreviewSource(source: string, autoplay: boolean): void {
   if (livePreviewVideoEl.dataset.currentUrl === source) {
+    livePreviewVideoEl.muted = false;
+    if (autoplay && !state.previewAutoplayBlocked) {
+      requestPreviewPlay();
+    }
     return;
   }
 
   livePreviewVideoEl.dataset.currentUrl = source;
   livePreviewVideoEl.src = source;
-  livePreviewVideoEl.muted = mutedAutoplay;
+  livePreviewVideoEl.muted = false;
   livePreviewVideoEl.controls = true;
 
-  if (mutedAutoplay) {
-    void livePreviewVideoEl.play().catch(() => {
-      // Browser autoplay policies may require a user gesture.
-    });
+  if (autoplay && !state.previewAutoplayBlocked) {
+    requestPreviewPlay();
   }
+}
+
+function requestPreviewPlay(): void {
+  void livePreviewVideoEl.play().then(
+    () => {
+      state.previewAutoplayBlocked = false;
+    },
+    () => {
+      state.previewAutoplayBlocked = true;
+      updateLivePreview();
+    },
+  );
 }
 
 function addStatusStep(text: string): void {

@@ -357,6 +357,23 @@ h1 {
   color: var(--muted);
 }
 
+.preview-sound-button {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.preview-sound-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 .live-preview video {
   border: 1px solid var(--line);
   box-shadow: var(--shadow);

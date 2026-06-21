@@ -80,5 +80,17 @@ def test_ready_file_path_from_line_extracts_completed_video(tmp_path):
     assert ready_file_path_from_line(f"File ready at {video_path}", tmp_path) == video_path
 
 
+def test_ready_file_path_from_line_handles_real_manimgl_log_suffix(tmp_path):
+    video_path = tmp_path / "videos" / "ThreeColorBalls" / "00028.mp4"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_bytes(b"fake")
+    line = (
+        "ThreeColorBalls.mp4 28 WriteText: 76%| 34 /45 336.96it/s "
+        f"[15:36:02] INFO File ready at {video_path} scene_file_writer.py:399"
+    )
+
+    assert ready_file_path_from_line(line, tmp_path) == video_path
+
+
 def test_sanitize_path_part_removes_unsafe_characters():
     assert sanitize_path_part("user:session/id") == "user_session_id"

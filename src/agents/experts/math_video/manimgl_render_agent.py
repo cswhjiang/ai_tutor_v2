@@ -34,7 +34,7 @@ from src.utils import clean_json_string
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 NARRATION_AUDIO_RE = re.compile(r"NARRATION_AUDIO\s*=\s*\{\}")
 START_VOICEOVER_RE = re.compile(r"start_voiceover\([^,\n]+,\s*[\"'](?P<key>[^\"']+)[\"']")
-MANIMGL_PROGRESS_RE = re.compile(r"(?P<percent>\d{1,3})%|File ready at (?P<file>.+)")
+MANIMGL_READY_FILE_RE = re.compile(r"File ready at (?P<file>.+?\.mp4)(?=\s|$|\x1b)")
 
 
 def resolve_manimgl_project_path() -> Path:
@@ -226,7 +226,7 @@ def build_preview_output_dir(ctx: InvocationContext) -> Path:
 
 def ready_file_path_from_line(line: str, workdir: Path) -> Path | None:
     """Extract a completed file path from a ManimGL progress line."""
-    match = MANIMGL_PROGRESS_RE.search(line)
+    match = MANIMGL_READY_FILE_RE.search(line)
     if not match or not match.group("file"):
         return None
 
@@ -265,6 +265,19 @@ def publish_video_preview(
     target_path = copy_preview_video(source_path, preview_dir, target_name)
     url = outputs_static_url(target_path)
     if not url:
+        logger.warning(
+            "MANIMGL_VIDEO_PREVIEW_PUBLISHED {}",
+            json.dumps(
+                {
+                    "published": False,
+                    "reason": "static_url_unavailable",
+                    "source_path": str(source_path),
+                    "status": status,
+                    "target_path": str(target_path),
+                },
+                ensure_ascii=False,
+            ),
+        )
         return False
 
     content: dict[str, Any] = {
@@ -276,13 +289,28 @@ def publish_video_preview(
     if sequence is not None:
         content["sequence"] = sequence
 
-    return publish_app_event(
+    published = publish_app_event(
         trace_id,
         {
             "type": "video_preview",
             "content": content,
         },
     )
+    logger.info(
+        "MANIMGL_VIDEO_PREVIEW_PUBLISHED {}",
+        json.dumps(
+            {
+                "published": published,
+                "sequence": sequence,
+                "status": status,
+                "target_path": str(target_path),
+                "trace_id": trace_id,
+                "url": url,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return published
 
 
 async def stream_manimgl_render(
