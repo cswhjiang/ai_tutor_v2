@@ -9,7 +9,7 @@
   "agent_llm_configs": {
     "OrchestratorAgent": {
       "llm_model": "gemini/gemini-3.5-flash",
-      "reasoning_level": "low"
+      "reasoning_level": "medium"
     },
     "FastMathVideoGenerationAgent": {
       "llm_model": "gemini/gemini-3.5-flash",
@@ -38,6 +38,10 @@
     "ManimGLCodeGenerationAgent": {
       "llm_model": "openai/gpt-5.5",
       "reasoning_level": "high"
+    },
+    "ManimGLSegmentCodeGenerationAgent": {
+      "llm_model": "gemini/gemini-3.5-flash",
+      "reasoning_level": "low"
     },
     "HTMLGenerationAgent": {
       "llm_model": "gemini/gemini-3.5-flash",

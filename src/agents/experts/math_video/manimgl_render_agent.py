@@ -344,6 +344,7 @@ async def stream_manimgl_render(
     workdir: Path,
     code_path: Path,
     scene_name: str,
+    subdivide: bool = True,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run ManimGL and yield progress lines followed by the final result."""
     write_manimgl_custom_config(workdir)
@@ -359,8 +360,9 @@ async def stream_manimgl_render(
         "--video_dir",
         str(video_dir),
         "--show_animation_progress",
-        "--subdivide",
     ]
+    if subdivide:
+        command.append("--subdivide")
     logger.info("Running ManimGL command: {}", command)
     process = await asyncio.create_subprocess_exec(
         *command,

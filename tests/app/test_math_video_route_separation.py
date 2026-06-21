@@ -48,8 +48,7 @@ def test_manimce_and_manimgl_routes_use_distinct_planning_agents():
     assert [agent.name for agent in manimgl_math_video_generation_agent.sub_agents] == [
         "ManimGLSolutionAgent",
         "ManimGLShotAgent",
-        "ManimGLCodeGenerationAgent",
-        "ManimGLRenderAgent",
+        "ManimGLSegmentedVideoAgent",
     ]
 
 

@@ -5,8 +5,9 @@ from src.agents.experts.math_video.code_generation_agent import CodeGenerationAg
 from src.agents.experts.math_video.fast_math_video_agent import FastMathVideoGenerationAgent
 from src.agents.experts.math_video.manimce_shot_agent import ManimCEShotAgent
 from src.agents.experts.math_video.manimce_solution_agent import ManimCESolutionAgent
-from src.agents.experts.math_video.manimgl_code_generation_agent import ManimGLCodeGenerationAgent
-from src.agents.experts.math_video.manimgl_render_agent import ManimGLRenderAgent
+from src.agents.experts.math_video.manimgl_segmented_video_agent import (
+    ManimGLSegmentedVideoAgent,
+)
 from src.agents.experts.math_video.manimgl_shot_agent import ManimGLShotAgent
 from src.agents.experts.math_video.manimgl_solution_agent import ManimGLSolutionAgent
 from src.agents.experts.math_video.render_agent import RenderAgent
@@ -33,8 +34,7 @@ manimgl_math_video_generation_agent = SequentialAgent(
     sub_agents=[
         ManimGLSolutionAgent(name="ManimGLSolutionAgent"),
         ManimGLShotAgent(name="ManimGLShotAgent"),
-        ManimGLCodeGenerationAgent(name="ManimGLCodeGenerationAgent"),
-        ManimGLRenderAgent(name="ManimGLRenderAgent"),
+        ManimGLSegmentedVideoAgent(name="ManimGLSegmentedVideoAgent"),
     ],
 )
 
