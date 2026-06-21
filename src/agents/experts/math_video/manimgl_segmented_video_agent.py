@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import datetime
 import json
@@ -30,18 +31,77 @@ from src.agents.experts.math_video.manimgl_render_agent import (
     stream_manimgl_render,
     summarize_manimgl_result,
     synthesize_manimgl_narrations,
+    sanitize_path_part,
     validate_voiceover_references,
 )
 from src.agents.experts.math_video.manimgl_shot_agent import MANIMGL_SHOT_DESIGN_KEY
 from src.agents.experts.math_video.manimgl_solution_agent import MANIMGL_SOLUTION_KEY
 from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
+from src.media.output_urls import OUTPUTS_ROOT
 from src.observability.timing import compact_text, timing_context_from_invocation, timing_stage
 from src.utils import clean_json_string
 
 
 MANIMGL_CURRENT_SEGMENT_KEY = "math_video/manimgl_current_segment"
 MANIMGL_SEGMENT_CODE_KEY = "math_video/manimgl_segment_code"
+MANIMGL_SEGMENT_RETRY_CONTEXT_KEY = "math_video/manimgl_segment_retry_context"
+MAX_SEGMENT_RENDER_ATTEMPTS = 2
+
+FORBIDDEN_MANIMGL_SYMBOLS = {
+    "Create",
+    "MathTex",
+    "MarkupText",
+    "TransformFromParagraph",
+    "TransformMatchingShapes",
+    "TransformMatchingTex",
+    "VoiceoverScene",
+    "always_redraw",
+    "get_part_by_tex",
+    "get_parts_by_tex",
+    "get_part_by_text",
+    "manim_voiceover",
+    "select_part",
+    "select_parts",
+    "select_unisolated_substring",
+    "voiceover",
+}
+
+ALLOWED_MANIMGL_CALL_SYMBOLS = {
+    "AnimationGroup",
+    "ApplyMethod",
+    "Arrow",
+    "Brace",
+    "Circle",
+    "DecimalNumber",
+    "Dot",
+    "FadeIn",
+    "FadeOut",
+    "FadeTransform",
+    "GrowArrow",
+    "Indicate",
+    "Integer",
+    "LaggedStart",
+    "Line",
+    "NumberLine",
+    "Polygon",
+    "Rectangle",
+    "ReplacementTransform",
+    "RoundedRectangle",
+    "Scene",
+    "ShowCreation",
+    "SurroundingRectangle",
+    "Tex",
+    "TexText",
+    "Text",
+    "Transform",
+    "VGroup",
+    "Write",
+}
+
+
+class ManimGLCodeValidationError(ValueError):
+    """Raised when generated ManimGL code fails local static validation."""
 
 
 class ManimGLSegmentNarration(BaseModel):
@@ -153,6 +213,131 @@ def parse_manimgl_segment_code_output(raw_output: Any) -> dict[str, Any]:
     )
 
 
+def called_symbol_name(node: ast.AST) -> str | None:
+    """Return the direct call symbol name for an AST call function."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def validate_manimgl_code_symbols(manim_code: str) -> None:
+    """
+    Reject generated code that clearly uses unsupported ManimGL symbols.
+
+    This is intentionally conservative: prompts reduce bad output, but this
+    local gate prevents known ManimCE APIs and hallucinated animation classes
+    from reaching the expensive TTS/render stages.
+    """
+    errors: list[str] = []
+    if "from manimlib import *" not in manim_code:
+        errors.append("missing required import: from manimlib import *")
+    if re.search(r"from\s+manim\s+import|import\s+manim(?:\s|$)", manim_code):
+        errors.append("ManimCE import is not allowed")
+
+    for symbol in sorted(FORBIDDEN_MANIMGL_SYMBOLS):
+        if re.search(rf"\b{re.escape(symbol)}\b", manim_code):
+            errors.append(f"unsupported ManimGL symbol: {symbol}")
+
+    try:
+        tree = ast.parse(manim_code)
+    except SyntaxError as exc:
+        raise ManimGLCodeValidationError(f"generated Python syntax error: {exc}") from exc
+
+    defined_symbols = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        symbol = called_symbol_name(node.func)
+        if not symbol:
+            continue
+        if symbol in FORBIDDEN_MANIMGL_SYMBOLS:
+            errors.append(f"unsupported ManimGL symbol: {symbol}")
+            continue
+        if (
+            symbol[:1].isupper()
+            and symbol not in ALLOWED_MANIMGL_CALL_SYMBOLS
+            and symbol not in defined_symbols
+        ):
+            errors.append(f"unknown ManimGL call symbol: {symbol}")
+
+    unique_errors = sorted(set(errors))
+    if unique_errors:
+        raise ManimGLCodeValidationError("; ".join(unique_errors))
+
+
+def build_segment_debug_dir(trace_id: str | None) -> Path:
+    """Return a stable debug output directory for generated segment code."""
+    directory_name = sanitize_path_part(trace_id or f"unknown_{int(time.time())}")
+    debug_dir = OUTPUTS_ROOT / "debug" / "manimgl_segment_code" / directory_name
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    return debug_dir
+
+
+def write_segment_debug_artifacts(
+    *,
+    trace_id: str | None,
+    segment: dict[str, Any],
+    segment_result: dict[str, Any],
+    attempt: int,
+    label: str,
+) -> dict[str, str]:
+    """Persist generated segment code and context for debugging."""
+    segment_index = int(segment["index"])
+    debug_dir = build_segment_debug_dir(trace_id)
+    prefix = f"segment_{segment_index:02d}_attempt_{attempt:02d}_{label}"
+    code_path = debug_dir / f"{prefix}.py"
+    output_path = debug_dir / f"{prefix}_generation_output.json"
+    context_path = debug_dir / f"segment_{segment_index:02d}_context.json"
+
+    code_path.write_text(str(segment_result.get("manimgl_code") or ""), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(segment_result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    context_path.write_text(json.dumps(segment, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    paths = {
+        "code_path": str(code_path.resolve()),
+        "generation_output_path": str(output_path.resolve()),
+        "context_path": str(context_path.resolve()),
+    }
+    logger.info(
+        "MANIMGL_SEGMENT_CODE_DEBUG_FILES {}",
+        json.dumps(
+            {
+                "attempt": attempt,
+                "label": label,
+                "segment_index": segment_index,
+                **paths,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+    )
+    return paths
+
+
+def build_segment_retry_context(
+    *,
+    error: Exception,
+    segment_result: dict[str, Any] | None,
+) -> dict[str, str]:
+    """Build retry instructions from a failed segment generation/render attempt."""
+    previous_code = ""
+    if segment_result:
+        previous_code = str(segment_result.get("manimgl_code") or "")
+    return {
+        "error": compact_text(str(error), 2000),
+        "previous_code": previous_code[:8000],
+    }
+
+
 def escape_ffmpeg_concat_path(path: Path) -> str:
     """Escape one path for ffmpeg concat demuxer file syntax."""
     return str(path.resolve()).replace("'", "'\\''")
@@ -249,6 +434,7 @@ async def manimgl_segment_code_before_model_callback(
     current_parameters = callback_context.state.get("current_parameters", {})
     solution = callback_context.state.get(MANIMGL_SOLUTION_KEY, "")
     segment = callback_context.state.get(MANIMGL_CURRENT_SEGMENT_KEY, {})
+    retry_context = callback_context.state.get(MANIMGL_SEGMENT_RETRY_CONTEXT_KEY)
 
     current_prompt = current_parameters["prompt"]
     current_info = current_parameters.get("current_info", "null")
@@ -275,6 +461,23 @@ async def manimgl_segment_code_before_model_callback(
             Content(
                 role="user",
                 parts=[Part(text=f"完整解题步骤，仅用于保持数学正确性：\n{solution}\n")],
+            )
+        )
+
+    if isinstance(retry_context, dict) and retry_context.get("error"):
+        llm_request.contents.append(
+            Content(
+                role="user",
+                parts=[
+                    Part(
+                        text=(
+                            "上一次生成的当前片段代码没有通过校验或渲染。"
+                            "请只修复当前片段，保持 JSON 输出格式不变，不要复用错误 API。\n"
+                            f"错误信息：\n{retry_context.get('error')}\n\n"
+                            f"上一次代码：\n```python\n{retry_context.get('previous_code', '')}\n```\n"
+                        )
+                    )
+                ],
             )
         )
 
@@ -361,18 +564,23 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
         ctx: InvocationContext,
         segment: dict[str, Any],
         timing_context: dict[str, Any],
+        *,
+        attempt: int,
+        retry_context: dict[str, str] | None = None,
     ) -> AsyncGenerator[Event | dict[str, Any], None]:
         """Generate executable ManimGL code for one segment."""
         segment_index = int(segment["index"])
-        segment_name = f"segment_{segment_index:02d}"
+        segment_name = f"segment_{segment_index:02d}_attempt_{attempt:02d}"
         ctx.session.state[MANIMGL_CURRENT_SEGMENT_KEY] = segment
         ctx.session.state[MANIMGL_SEGMENT_CODE_KEY] = None
+        ctx.session.state[MANIMGL_SEGMENT_RETRY_CONTEXT_KEY] = retry_context
 
         yield self.format_event(
             None,
             {
                 MANIMGL_CURRENT_SEGMENT_KEY: segment,
                 MANIMGL_SEGMENT_CODE_KEY: None,
+                MANIMGL_SEGMENT_RETRY_CONTEXT_KEY: retry_context,
             },
         )
 
@@ -380,7 +588,7 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
             "agent",
             f"ManimGLSegmentCodeGenerationAgent.{segment_name}",
             **timing_context,
-            metadata={"segment_index": segment_index},
+            metadata={"attempt": attempt, "segment_index": segment_index},
         ) as agent_timing:
             text_list: list[str] = []
             with timing_stage(
@@ -388,6 +596,7 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
                 f"ManimGLSegmentCodeGenerationAgent.{segment_name}.llm",
                 **timing_context,
                 metadata={
+                    "attempt": attempt,
                     "output_key": MANIMGL_SEGMENT_CODE_KEY,
                     "segment_index": segment_index,
                 },
@@ -423,6 +632,7 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
         preview_dir: Path,
         trace_id: str | None,
         timing_context: dict[str, Any],
+        attempt: int,
     ) -> AsyncGenerator[Event | dict[str, Any], None]:
         """Render one generated ManimGL segment and publish its preview."""
         segment_index = int(segment["index"])
@@ -444,16 +654,43 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
         if not manimgl_code or not scene_name:
             raise ValueError(f"第 {segment_index} 段 ManimGL 代码或 scene_name 缺失。")
 
+        raw_debug_paths = write_segment_debug_artifacts(
+            trace_id=trace_id,
+            segment=segment,
+            segment_result=segment_result,
+            attempt=attempt,
+            label="raw",
+        )
+        with timing_stage(
+            "validation",
+            f"ManimGLSegmentedRender.{segment_name}.validate_code",
+            **timing_context,
+            metadata={
+                "attempt": attempt,
+                "code_chars": len(manimgl_code),
+                "code_path": raw_debug_paths["code_path"],
+                "scene_name": scene_name,
+                "segment_index": segment_index,
+            },
+        ):
+            try:
+                validate_manimgl_code_symbols(manimgl_code)
+                validate_voiceover_references(manim_code=manimgl_code, narrations=narrations)
+            except Exception as exc:
+                raise ManimGLCodeValidationError(
+                    f"{exc}；生成代码已保存到 {raw_debug_paths['code_path']}"
+                ) from exc
+
         with timing_stage(
             "tts",
             f"ManimGLSegmentedRender.{segment_name}.tts",
             **timing_context,
             metadata={
+                "attempt": attempt,
                 "segment_index": segment_index,
                 "narration_count": len(narrations),
             },
         ) as tts_timing:
-            validate_voiceover_references(manim_code=manimgl_code, narrations=narrations)
             audio_manifest = await asyncio.to_thread(
                 synthesize_manimgl_narrations,
                 narrations,
@@ -464,6 +701,14 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
                 1 for item in audio_manifest.values() if item.get("cache_hit")
             )
         manimgl_code = inject_narration_audio(manimgl_code, audio_manifest)
+        render_segment_result = {**segment_result, "manimgl_code": manimgl_code}
+        render_debug_paths = write_segment_debug_artifacts(
+            trace_id=trace_id,
+            segment=segment,
+            segment_result=render_segment_result,
+            attempt=attempt,
+            label="render",
+        )
         code_path.write_text(manimgl_code, encoding="utf-8")
 
         render_result: dict[str, Any] | None = None
@@ -473,9 +718,11 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
             f"ManimGLSegmentedRender.{segment_name}.render",
             **timing_context,
             metadata={
+                "attempt": attempt,
                 "segment_index": segment_index,
                 "scene_name": scene_name,
                 "code_chars": len(manimgl_code),
+                "code_path": render_debug_paths["code_path"],
             },
         ) as render_timing:
             async for update in stream_manimgl_render(
@@ -528,6 +775,7 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
                     + str(render_result.get("stderr") or ""),
                     1000,
                 )
+                + f"；生成代码已保存到 {render_debug_paths['code_path']}"
             )
 
         mp4_path = find_rendered_mp4(segment_workdir)
@@ -547,6 +795,7 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
             "path": semantic_path,
             "scene_name": scene_name,
             "code": manimgl_code,
+            "debug_code_path": render_debug_paths["code_path"],
             "video_bytes": semantic_path.stat().st_size,
         }
 
@@ -604,42 +853,68 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
                         f"正在生成第 {segment_index}/{len(segments)} 段讲解视频..."
                     )
 
-                    try:
+                    rendered_segment: dict[str, Any] | None = None
+                    retry_context: dict[str, str] | None = None
+                    last_error: Exception | None = None
+                    for attempt in range(1, MAX_SEGMENT_RENDER_ATTEMPTS + 1):
+                        if attempt > 1:
+                            yield self._status_event(
+                                f"第 {segment_index} 段生成失败，正在修复后重试第 {attempt} 次..."
+                            )
+
                         generated_segment: dict[str, Any] | None = None
-                        async for item in self._generate_segment_code(
-                            ctx=ctx,
-                            segment=segment,
-                            timing_context=timing_context,
-                        ):
-                            if isinstance(item, Event):
-                                yield item
-                            else:
-                                generated_segment = item
+                        try:
+                            async for item in self._generate_segment_code(
+                                ctx=ctx,
+                                segment=segment,
+                                timing_context=timing_context,
+                                attempt=attempt,
+                                retry_context=retry_context,
+                            ):
+                                if isinstance(item, Event):
+                                    yield item
+                                else:
+                                    generated_segment = item
 
-                        if generated_segment is None:
-                            raise RuntimeError(f"第 {segment_index} 段代码生成结果为空。")
+                            if generated_segment is None:
+                                raise RuntimeError(f"第 {segment_index} 段代码生成结果为空。")
 
-                        rendered_segment: dict[str, Any] | None = None
-                        async for item in self._render_segment(
-                            ctx=ctx,
-                            segment=segment,
-                            segment_result=generated_segment,
-                            segment_workdir=workdir / f"segment_{segment_index:02d}",
-                            preview_dir=preview_dir,
-                            trace_id=trace_id,
-                            timing_context=timing_context,
-                        ):
-                            if isinstance(item, Event):
-                                yield item
-                            else:
-                                rendered_segment = item
+                            async for item in self._render_segment(
+                                ctx=ctx,
+                                segment=segment,
+                                segment_result=generated_segment,
+                                segment_workdir=workdir
+                                / f"segment_{segment_index:02d}_attempt_{attempt:02d}",
+                                preview_dir=preview_dir,
+                                trace_id=trace_id,
+                                timing_context=timing_context,
+                                attempt=attempt,
+                            ):
+                                if isinstance(item, Event):
+                                    yield item
+                                else:
+                                    rendered_segment = item
 
-                        if rendered_segment is None:
-                            raise RuntimeError(f"第 {segment_index} 段渲染结果为空。")
+                            if rendered_segment is None:
+                                raise RuntimeError(f"第 {segment_index} 段渲染结果为空。")
+                            break
+                        except Exception as exc:
+                            last_error = exc
+                            retry_context = build_segment_retry_context(
+                                error=exc,
+                                segment_result=generated_segment,
+                            )
+                            logger.warning(
+                                "ManimGL segment {} attempt {} failed: {}",
+                                segment_index,
+                                attempt,
+                                exc,
+                            )
+                            if attempt < MAX_SEGMENT_RENDER_ATTEMPTS:
+                                continue
 
-                        segment_paths.append(Path(rendered_segment["path"]))
-                        segment_outputs.append(rendered_segment)
-                    except Exception as exc:
+                    if rendered_segment is None:
+                        exc = last_error or RuntimeError(f"第 {segment_index} 段生成失败。")
                         agent_timing["status"] = "error"
                         current_output = {
                             "author": self.name,
@@ -654,6 +929,9 @@ class ManimGLSegmentedVideoAgent(BaseAgent):
                             {"current_output": current_output},
                         )
                         return
+
+                    segment_paths.append(Path(rendered_segment["path"]))
+                    segment_outputs.append(rendered_segment)
 
                 final_path = workdir / "final.mp4"
                 try:
@@ -763,8 +1041,9 @@ MANIMGL_SEGMENT_CODE_GENERATION_INSTRUCTION = """
 # ManimGL 技术约束
 - 必须使用 `from manimlib import *`。
 - 禁止使用 Manim Community Edition 专属 API：`from manim import *`、`MathTex`、`MarkupText`、`Create`、`VoiceoverScene`、`self.voiceover`、`manim_voiceover`。
-- 常用对象优先使用：`Text`、`Tex`、`TexText`、`VGroup`、`Rectangle`、`RoundedRectangle`、`SurroundingRectangle`、`Line`、`Arrow`、`Circle`、`Dot`。
-- 常用动画优先使用：`Write`、`FadeIn`、`FadeOut`、`ShowCreation`、`Transform`、`ReplacementTransform`、`FadeTransform`、`Indicate`。
+- 只允许使用下列常用对象/辅助类：`Text`、`Tex`、`TexText`、`VGroup`、`Rectangle`、`RoundedRectangle`、`SurroundingRectangle`、`Line`、`Arrow`、`Circle`、`Dot`、`Brace`、`NumberLine`、`DecimalNumber`、`Integer`。
+- 只允许使用下列动画类：`Write`、`FadeIn`、`FadeOut`、`ShowCreation`、`Transform`、`ReplacementTransform`、`FadeTransform`、`Indicate`、`ApplyMethod`、`GrowArrow`、`AnimationGroup`、`LaggedStart`。
+- 禁止使用任何未列出的动画类，尤其禁止：`TransformFromParagraph`、`TransformMatchingTex`、`TransformMatchingShapes`。
 - 中文文本用 `Text("中文", font="PingFang SC")`；不要把中文放进 `Tex` 公式。
 - 公式使用 `Tex(r"...")`，公式里只放数学符号、英文和数字。
 - 不依赖外部图片、外部音频、网络资源或第三方字体文件。
