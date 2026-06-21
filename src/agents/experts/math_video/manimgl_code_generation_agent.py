@@ -7,11 +7,29 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.adk.models import LlmRequest
 from google.genai.types import Content, Part
+from pydantic import BaseModel, Field
 
 from conf.system import SYS_CONFIG
 from src.llm.model_factory import build_model_kwargs, resolve_agent_llm_settings
 from src.logger import logger
 from src.observability.timing import timing_context_from_invocation, timing_stage
+
+
+class ManimGLNarrationSegment(BaseModel):
+    """Narration segment used by generated ManimGL code."""
+
+    key: str = Field(description="Unique narration key referenced by start_voiceover calls.")
+    text: str = Field(description="Narration text to synthesize with TTS.")
+
+
+class ManimGLCodeOutput(BaseModel):
+    """Structured output contract for ManimGL code generation."""
+
+    scene_name: str = Field(description="ManimGL Scene class name.")
+    manimgl_code: str = Field(description="Complete executable ManimGL Python code.")
+    narrations: list[ManimGLNarrationSegment] = Field(
+        description="Narration segments matching NARRATION_SEGMENTS in the generated code."
+    )
 
 
 async def manimgl_code_generation_before_model_callback(
@@ -93,6 +111,7 @@ class ManimGLCodeGenerationAgent(BaseAgent):
             description=description,
             instruction=MANIMGL_CODE_GENERATION_INSTRUCTION.replace("{TIME_STR}", time_str),
             before_model_callback=manimgl_code_generation_before_model_callback,
+            output_schema=ManimGLCodeOutput,
             output_key="math_video/manimgl_code",
         )
         super().__init__(name=name, description=description, llm=llm)

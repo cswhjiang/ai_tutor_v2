@@ -3,6 +3,7 @@ import pytest
 from src.agents.experts.math_video.manimgl_render_agent import (
     extract_voiceover_keys,
     inject_narration_audio,
+    parse_manimgl_generation_output,
     normalize_narration_segments,
     ready_file_path_from_line,
     sanitize_path_part,
@@ -24,6 +25,29 @@ def test_normalize_narration_segments_deduplicates_keys():
         "intro_02",
         "narration_03",
     ]
+
+
+def test_parse_manimgl_generation_output_accepts_adk_schema_dict():
+    raw_output = {
+        "scene_name": "ThreeColorBalls",
+        "manimgl_code": "from manimlib import *\n",
+        "narrations": [{"key": "intro", "text": "题目开场"}],
+    }
+
+    assert parse_manimgl_generation_output(raw_output) is raw_output
+
+
+def test_parse_manimgl_generation_output_keeps_string_json_strict():
+    valid_json = (
+        '{"scene_name": "ThreeColorBalls", '
+        '"manimgl_code": "from manimlib import *\\n", '
+        '"narrations": []}'
+    )
+    invalid_json = valid_json + "}"
+
+    assert parse_manimgl_generation_output(valid_json)["scene_name"] == "ThreeColorBalls"
+    with pytest.raises(ValueError):
+        parse_manimgl_generation_output(invalid_json)
 
 
 def test_inject_narration_audio_replaces_placeholder():

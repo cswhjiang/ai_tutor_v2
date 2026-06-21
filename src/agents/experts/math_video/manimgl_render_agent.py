@@ -120,6 +120,32 @@ def normalize_narration_segments(raw_segments: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def parse_manimgl_generation_output(raw_output: Any) -> dict[str, Any]:
+    """
+    Parse ManimGL code generation output.
+
+    ADK `output_schema` stores validated agent output as a structured dict.
+    Older runs may still provide a JSON string, which remains strictly parsed.
+    """
+    if isinstance(raw_output, dict):
+        return raw_output
+    if isinstance(raw_output, str):
+        return json.loads(clean_json_string(raw_output))
+    raise TypeError(
+        "math_video/manimgl_code must be a structured dict or JSON string, "
+        f"got {type(raw_output).__name__}"
+    )
+
+
+def manimgl_output_size(raw_output: Any) -> int:
+    """Return a stable size hint for logging and timing metadata."""
+    if isinstance(raw_output, str):
+        return len(raw_output)
+    if isinstance(raw_output, dict):
+        return len(json.dumps(raw_output, ensure_ascii=False))
+    return len(str(raw_output))
+
+
 def extract_voiceover_keys(manim_code: str) -> set[str]:
     """Return narration keys referenced by generated ManimGL code."""
     return {match.group("key") for match in START_VOICEOVER_RE.finditer(manim_code)}
@@ -443,9 +469,11 @@ class ManimGLRenderAgent(BaseAgent):
             metadata={"mode": "manimgl_math_video"},
         ) as agent_timing:
             manimgl_result_by_agent = ctx.session.state.get("math_video/manimgl_code", "")
+            manimgl_result_size = manimgl_output_size(manimgl_result_by_agent)
             logger.info(
-                "ManimGLRenderAgent received json chars={} preview={}",
-                len(manimgl_result_by_agent),
+                "ManimGLRenderAgent received output type={} chars={} preview={}",
+                type(manimgl_result_by_agent).__name__,
+                manimgl_result_size,
                 compact_text(manimgl_result_by_agent),
             )
 
@@ -454,10 +482,12 @@ class ManimGLRenderAgent(BaseAgent):
                     "parse",
                     "ManimGLRenderAgent.parse_manimgl_json",
                     **timing_context,
-                    metadata={"input_chars": len(manimgl_result_by_agent)},
+                    metadata={
+                        "input_chars": manimgl_result_size,
+                        "input_type": type(manimgl_result_by_agent).__name__,
+                    },
                 ):
-                    manimgl_result_by_agent = clean_json_string(manimgl_result_by_agent)
-                    manimgl_result = json.loads(manimgl_result_by_agent)
+                    manimgl_result = parse_manimgl_generation_output(manimgl_result_by_agent)
             except Exception as exc:
                 agent_timing["status"] = "error"
                 current_output = {
