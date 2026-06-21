@@ -2,10 +2,10 @@
 
 ## 背景
 
-当前数学视频链路原来是四段式：
+当前 Manim CE 数学视频链路是四段式：
 
-1. `SolutionAgent` 生成解题过程。
-2. `ShotAgent` 生成分镜。
+1. `ManimCESolutionAgent` 生成解题过程。
+2. `ManimCEShotAgent` 生成分镜。
 3. `CodeGenerationAgent` 生成完整 Manim 代码。
 4. `RenderAgent` 执行 Manim 渲染并保存视频。
 

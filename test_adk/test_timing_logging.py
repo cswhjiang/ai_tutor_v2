@@ -45,12 +45,12 @@ def test_summarize_payload_keeps_timing_logs_compact():
     assert summarized["binary"] == {"type": "bytes", "bytes": 3}
 
 
-def test_analyzer_lists_shot_and_code_generation_separately():
+def test_analyzer_lists_two_agents_separately():
     analyzer = load_timing_analyzer_module()
     shot_record = build_timing_record(
         event="stage_end",
         stage="agent",
-        name="ShotAgent",
+        name="SampleAgent",
         trace_id="trace-1",
         status="success",
         duration_ms=1200,
@@ -74,5 +74,5 @@ def test_analyzer_lists_shot_and_code_generation_separately():
     summary = analyzer.format_timing_summary(records)
 
     assert len(records) == 2
-    assert "| agent | ShotAgent | success | 1.20s |  |" in summary
+    assert "| agent | SampleAgent | success | 1.20s |  |" in summary
     assert "| agent | CodeGenerationAgent | success | 3.40s |  |" in summary

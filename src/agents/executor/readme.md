@@ -1,18 +1,12 @@
 
-## Executor 的输入
-current_plan，即如下的结构
-```json
-{
-  "next_agent": "AgentName", 
-  "parameters": {
-    "param1_for_agent": "value1"
-  },
-  "summary": "对你当前决策的简短总结，会展示给用户。"
-}
-```
+## Runtime 的输出协议
 
-## Executor 的输出
-current_output，即如下的结构
+当前 `AgentInvocationService` 不再执行 plan，也不再直接调用 expert runner。它负责两件事：
+
+1. 将 ADK Runner 的流式事件转换成前端使用的 SSE event。
+2. 将 expert 写入 `state.current_output` 的结果持久化到 artifact history 和本地输出目录。
+
+`current_output` 结构如下：
 ```json
 { "author": 'AgentName', // 必填。输出信息的agent名字。必选
   "status": 'success', // 必填。调用是否成功
@@ -21,15 +15,3 @@ current_output，即如下的结构
   "output_artifacts": [binary_result], //可选。agent 返回的二进制文件列表。
 } 
 ```
-
-
-## Executor 的执行流程：
-
-1. 确定是否需要重新生成next action，如果是则生成
-
-2. 构造参数，包含检查agent是否存在，检查 artifact （规定以 `input_name` 命名）， 将当前的参数写入state `current_parameters` 中。
-
-3. 运行expert，agent 自己将运行的结果写到 `state['current_output']`中
-
-4. 更新 artifacts_history 、text_history、message_history、summary_history，把新生成的artifact保存到本地
-然后通过 event 将所有信息保存到session中

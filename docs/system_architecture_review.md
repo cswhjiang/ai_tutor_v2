@@ -155,19 +155,12 @@ artifact_service = InMemoryArtifactService()
 
 ### 5.2 Runtime
 
-当前主链路使用 `AgentInvocationService` 作为通用输出持久化 runtime。旧的 `Executor` 名称仅作为兼容 alias 保留。旧链路可以继续直接调用 `execute_agent()`：
+当前主链路使用 `AgentInvocationService` 作为通用 runtime，职责已经收敛为两部分：
 
-1. 接收 `agent_name`、`parameters` 和本步 `summary`。
-2. 校验目标 agent 是否存在。
-3. 校验 `parameters.input_name` / `parameters.input_img_name` 是否指向已存在 artifact。
-4. 写入 `state.current_parameters`。
-5. 旧链路通过 `expert_runners[agent_name]` 调用 expert；新 AgentTool 链路由 ADK 子 session 调用 expert。
-6. 从 `state.current_output` 读取 expert 结果。
-7. 保存 artifact 到本地输出目录。
-8. 更新 `step`、`new_artifacts`、`artifacts_history`、`summary_history`、`message_history`、`text_history`。
-9. 清空 `current_plan`，兼容旧链路并防止旧 plan 重复执行。
+1. 将 ADK Runner 的流式事件转换为前端稳定 SSE 事件。
+2. 在父 Runner 完成后通过 `persist_current_output()` 把 `state.current_output` 保存到本地并更新 history。
 
-`execute_plan()` 现在只是兼容入口：读取 `state.current_plan` 后转调 `execute_agent()`。新主链路主要使用 `persist_current_output()`，在父 Runner 完成后把 `current_output` 保存到本地并更新 history。runtime 不关心 expert 内部如何实现，只依赖 `current_output` 协议。
+旧的 plan-based `execute_plan()` / `execute_agent()` 入口已经移除。runtime 不再通过 `expert_runners[agent_name]` 主动调用 expert；当前 expert 调用由 Orchestrator 的 ADK `AgentTool` 发起。
 
 ## 6. Expert Agent 注册与输出协议
 
@@ -175,20 +168,9 @@ artifact_service = InMemoryArtifactService()
 
 expert agent 的展示能力来自 `conf/jsons/agent.json`。Orchestrator 的 prompt 会读取其中启用的 expert，形成可用 agent 列表。
 
-实际可执行对象在 `server/agents_manager.py` 中注册：
+当前可执行对象由 Orchestrator 显式创建并挂载为 ADK `AgentTool`。`server/agents_manager.py` 只负责共享的 session service 和 artifact service，不再在服务启动时实例化所有 expert runner。
 
-```python
-expert_agents = {
-    "ImageUnderstandingAgent": image_understanding_agent,
-    "ScienceAgent": science_agent,
-    "MathVideoGenerationAgent": math_video_generation_agent,
-    ...
-}
-```
-
-然后为每个 expert 创建 ADK `Runner`。
-
-需要注意：`agent.json` 中 `enable=false` 的 agent 仍可能在 `agents_manager.py` 中被实例化并注册 runner。默认 Orchestrator 不应选择禁用 agent，因为 prompt 列表只包含 `enable=true` 的配置。
+`agent.json` 仍保留 expert 能力说明，后续如果扩展 Orchestrator 的工具集合，应当按需注册具体工具，而不是恢复启动时全量初始化。
 
 ### 6.2 输出协议
 
@@ -222,8 +204,8 @@ expert agent 通过 ADK `EventActions(state_delta=...)` 写入 `state.current_ou
 
 `manimce_math_video_generation_agent` 由 `SequentialAgent` 串联：
 
-1. `SolutionAgent`
-2. `ShotAgent`
+1. `ManimCESolutionAgent`
+2. `ManimCEShotAgent`
 3. `CodeGenerationAgent`
 4. `RenderAgent`
 
@@ -423,9 +405,9 @@ outputs/videos/math_video_preview
 
 需要确认：
 
-- 旧的 `Executor` alias 什么时候可以彻底删除。
+- `AgentInvocationService` 是否需要重命名为更贴近当前职责的 runtime 名称。
 - AgentTool 的 request JSON 是否需要升级为 Pydantic input schema。
-- 是否需要补充单元测试覆盖 `execute_agent()` 的 artifact 保存和历史更新路径。
+- 是否需要补充单元测试覆盖 `persist_current_output()` 的 artifact 保存和历史更新路径。
 
 ### 11.4 数学视频的快速链路与 Manim CE 链路已统一 import 假设
 
@@ -471,9 +453,8 @@ outputs/videos/math_video_preview
 2. 统一 `ByteDanceService` 的项目内 import 策略，停止依赖 `.venv` 手工复制。
 3. 明确 artifact 持久化策略，解决重启和多 worker 问题。
 4. 为 `MathVideoGenerationAgent` 快速链路增加 TTS 失败可观测性。
-5. 清理已禁用 expert 的注册关系，减少 prompt 可见能力和实际 runner 的漂移。
-6. 彻底移除旧 `Executor` alias 和 `execute_plan()` 入口。
-7. 梳理业务 conversation 与 ADK session 的对应关系。
+5. 按需注册更多 Orchestrator 工具，避免恢复全量 expert runner 初始化。
+6. 梳理业务 conversation 与 ADK session 的对应关系。
 
 ## 13. 一句话总结
 

@@ -5,7 +5,7 @@ server/
 ├── database.py            # 数据库配置：引擎创建与 SessionLocal
 ├── models.py              # 数据库模型：SQLAlchemy 表定义
 ├── schemas.py             # 数据验证模型：Pydantic 类
-├── agents_manager.py      # ADK相关：所有专家 Agent 与 Runner 的初始化
+├── agents_manager.py      # ADK相关：共享 session service 与 artifact service
 ├── utils/                 # 工具类文件夹
 │   ├── auth.py            # 权限工具：加密、JWT、Google OAuth 验证
 │   ├── email.py           # 邮件工具：SMTP 异步发送

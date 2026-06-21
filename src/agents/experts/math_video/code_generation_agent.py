@@ -545,8 +545,8 @@ Welcome to our advanced mathematics session.
 # 任务输入
  - 问题：生成用户描述的理工科相关的任务
  - 图片：数量不等的用于相关的图片，可选项。
- - 答案：SolutionAgent 提供的答案。
- - 分镜：ShotAgent 提供的分镜设计。
+ - 答案：ManimCESolutionAgent 提供的答案。
+ - 分镜：ManimCEShotAgent 提供的分镜设计。
 
 
 

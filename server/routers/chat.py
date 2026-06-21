@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from google.adk.runners import Runner
 from google.genai.types import Content, Part
 
-from server.agents_manager import session_service, artifact_service, expert_runners
+from server.agents_manager import session_service, artifact_service
 from server.utils.common import set_initial_state
 from src.agents.orchestrator.tool_calling_orchestrator_agent import create_orchestrator_agent
 from src.agents.executor.executor_agent import AgentInvocationService
@@ -316,7 +316,6 @@ async def chat_with_agent(
             session_service=session_service,
             artifact_service=artifact_service,
             app_name=SYS_CONFIG.app_name,
-            expert_runners=expert_runners,
         )
 
         executor.uid = uid

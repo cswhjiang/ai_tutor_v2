@@ -26,7 +26,6 @@ class AgentInvocationService:
         uid: str = '',
         sid: str = '',
         username: str = '',
-        expert_runners: Dict[str, Runner] = {}, # 用于运行expert的runner
     ) -> None:
         self.app_name = app_name
         self.session_service = session_service
@@ -36,33 +35,7 @@ class AgentInvocationService:
         self.sid = sid
         self.username = username
 
-        self.expert_runners = expert_runners
         self.latest_final_response_text = ""
-
-    async def run_agent_and_log_events(
-        self,
-        runner: Runner,
-        user_id: str,
-        session_id: str,
-        new_message: Optional[Content] = None,
-        trace_id: str | None = None,
-    ) -> str:
-        final_response_text = ""
-        with timing_stage(
-            "adk_run",
-            runner.agent.name,
-            trace_id=trace_id,
-            uid=user_id,
-            sid=session_id,
-        ):
-            async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message): # 这个是那个agent运行的？
-                self._log_event_summary(event, trace_id=trace_id)
-                if event.is_final_response() and event.content and event.content.parts:
-                    text_part = self._event_text(event)
-                    if text_part:
-                        final_response_text = text_part
-                        logger.info(f"[{runner.agent.name}] final response chars={len(final_response_text)}")
-        return final_response_text
 
     async def stream_agent_events(
         self,
@@ -289,91 +262,6 @@ class AgentInvocationService:
             logger.error(f'load {art_name} return none and save failed') # TODO: 确定原因
             return None
         return art_path
-    
-    async def check_paramters_valid(self, agent_name: str, params_for_expert: Dict[str, Any]) -> str:
-        error_text = ''
-        error_arifact_names = []
-
-        # 检查调用的agent名称是否在提供的expert_runners中
-        if agent_name not in self.expert_runners:
-            error_text = f"请求调用了未知的Agent: '{agent_name}'，它不在提供的agent列表中"
-            return error_text
-
-        # 检查调用的artifact名称是否存在于artifact service中
-        artifact_parameter_names = ["input_name", "input_img_name"]
-        for artifact_parameter_name in artifact_parameter_names:
-            if artifact_parameter_name not in params_for_expert:
-                continue
-
-            art_list = await self.artifact_service.list_artifact_keys(
-                app_name=self.app_name, user_id=self.uid, session_id=self.sid
-            )
-
-            parameter_value = params_for_expert[artifact_parameter_name]
-            input_names = []
-            if isinstance(parameter_value, str):
-                input_names = [parameter_value]
-            elif isinstance(parameter_value, list):
-                input_names = parameter_value
-            else:
-                error_text += f"当前的parameters['{artifact_parameter_name}']格式错误，需要为string或list"
-                return error_text
-
-            for name in input_names:
-                if name in art_list:
-                    continue
-
-                logger.info(art_list)
-                error_arifact_names.append(name)
-
-        if len(error_arifact_names) > 0:
-            all_artifact_names = ', '.join(error_arifact_names)
-            error_text += f"请求选择了未知的 artifact: {all_artifact_names}，它们不在artifacts列表中"
-
-        return error_text
-
-    async def execute_agent(
-        self,
-        agent_name: str,
-        parameters: Dict[str, Any],
-        summary: str = "",
-    ) -> Dict[str, Any]:
-        """Run one expert agent directly and persist its output into session state.
-
-        This is the reusable runtime path for both the plan-based executor
-        and the new tool-calling orchestrator. It writes `current_parameters`,
-        invokes the target agent runner, saves generated artifacts to disk, and
-        appends execution history back to the shared session.
-        """
-        # 检查参数有效性
-        error_text = await self.check_paramters_valid(agent_name, parameters)
-        # 如果参数有问题，那么error_text会有值
-        if error_text:
-            logger.error(error_text)
-            
-            # 2026.1.12之前版本出错后没有更新state delta，这里会有相应更新，是否正确需要确认？？？
-
-            # 2026.1.12之前版本遇到错误会直接返回None，鲁棒性不强，外层函数判断麻烦，这里改成统一的。
-            # 这里author直接使用Executor，因为没有执行expert agent
-            current_output = {
-                "author": "Executor",
-                "status": "error",
-                "message": error_text,
-                "message_for_user": error_text,
-                "output_artifacts": [],
-                "output_text": ""
-            }
-        else:
-            # 参数没有问题，运行expert agent
-            # 将当前的参数写入state
-            await self.add_event(state_delta={'current_parameters': parameters})
-            # 运行expert，运行的结果位于state['current_output']
-            expert_runner = self.expert_runners[agent_name]
-            new_message = Content(role='user', parts=[Part(text="根据原始任务和当前输入参数，调用对应的agent来执行")]) # TODO: 没有author，确认
-            await self.run_agent_and_log_events(expert_runner, user_id=self.uid, session_id=self.sid, new_message=new_message) # 调用这个runner下的agent。TODO: 这个message 在 llm_request 里面没有author
-            current_output = {} # 先置空，下面会从state中读取
-
-        return await self.persist_current_output(summary=summary, current_output=current_output)
 
     async def persist_current_output(
         self,
@@ -475,29 +363,3 @@ class AgentInvocationService:
             await self.add_event(text=f"第{current_step+1}轮专家执行出错。这一步的原始目标：`{summary}`, 执行错误描述：`{current_output['message']}`。当前步骤目标可能未完成，需要视情况重新执行或使用新的参数或方法。", state_delta=state_delta)
 
         return current_output
-
-    async def execute_plan(self):
-        """
-        执行plan函数，直接从主session的state中的 `current_plan` 字段读取当前规划的参数并执行
-        """
-        # load state['current_plan']
-        current_session = await database_op_with_retry(
-                self.session_service.get_session,
-                app_name=SYS_CONFIG.app_name,
-                user_id=self.uid,
-                session_id=self.sid,
-            )
-
-        # TODO: 有潜在问题，使用完之后没有清空。如果当前 next_agent 决策没有填充这个字段的话，会继续执行上一个步骤。
-        # 增加这个todo，在最后面执行完之后清空 current_plan，使用state_delta进行覆盖
-        plan = current_session.state.get('current_plan') or {}
-
-        return await self.execute_agent(
-            agent_name=plan.get("next_agent"),
-            parameters=plan.get("parameters", {}),
-            summary=plan.get("summary", {}),
-        )
-
-
-# Backward-compatible alias for the plan-based route.
-Executor = AgentInvocationService

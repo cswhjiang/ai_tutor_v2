@@ -21,7 +21,6 @@ from google.genai.types import Part, Blob
 
 from conf.system import SYS_CONFIG
 from src.logger import logger
-# from src.agents.experts.deep_research.tool import ddgs_text_search
 
 def get_text_from_url(url: str):
     downloaded = trafilatura.fetch_url(url)
@@ -114,4 +113,3 @@ class DRSearchWorkerAgent(BaseAgent):
             {f"deep_research/search_output_{self.run_id}": search_output["output_text"]},
         )
         return
-
